@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-REPO_DIR="$HOME/dev-machine-config"
+REPO_DIR="$HOME/Projetos/ai/dev-machine-config"
 
 if [ ! -d "$REPO_DIR" ]; then
   echo "Repo não encontrado em $REPO_DIR"

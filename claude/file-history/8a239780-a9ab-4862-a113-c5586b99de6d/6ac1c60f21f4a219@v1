@@ -1,0 +1,33 @@
+'use client'
+
+import { useEffect } from 'react'
+import { useFlowStore } from '@/store/useFlowStore'
+import Sidebar from '@/components/layout/Sidebar'
+import Header from '@/components/layout/Header'
+import KanbanBoard from '@/components/board/KanbanBoard'
+import CardModal from '@/components/modals/CardModal'
+
+export default function Home() {
+  const { darkMode } = useFlowStore()
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [darkMode])
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+      <Sidebar />
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <Header />
+        <main className="flex-1 overflow-auto">
+          <KanbanBoard />
+        </main>
+      </div>
+      <CardModal />
+    </div>
+  )
+}

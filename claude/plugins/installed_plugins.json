@@ -1,0 +1,65 @@
+{
+  "version": 2,
+  "plugins": {
+    "context-mode@context-mode": [
+      {
+        "scope": "user",
+        "installPath": "/Users/carlosroberto/.claude/plugins/cache/context-mode/context-mode/1.0.59",
+        "version": "1.0.59",
+        "installedAt": "2026-03-30T12:45:48.270Z",
+        "lastUpdated": "2026-04-02T20:57:47.359Z",
+        "gitCommitSha": "358fa3a5fad083d950a48ae3c67128b0d9b939bb"
+      }
+    ],
+    "superpowers@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/carlosroberto/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7",
+        "version": "5.0.7",
+        "installedAt": "2026-04-01T14:08:43.361Z",
+        "lastUpdated": "2026-04-01T14:08:43.361Z",
+        "gitCommitSha": "dd237283dbfe466e11bd4be55acf14ecb8f6636e"
+      }
+    ],
+    "autoresearch@autoresearch": [
+      {
+        "scope": "user",
+        "installPath": "/Users/carlosroberto/.claude/plugins/cache/autoresearch/autoresearch/1.9.0",
+        "version": "1.9.0",
+        "installedAt": "2026-04-01T14:35:21.945Z",
+        "lastUpdated": "2026-04-01T14:35:21.945Z",
+        "gitCommitSha": "0a1b6779cb817314a31caea51512e5aa07219dbe"
+      }
+    ],
+    "frontend-design@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/carlosroberto/.claude/plugins/cache/claude-plugins-official/frontend-design/b091cb4179d3",
+        "version": "b091cb4179d3",
+        "installedAt": "2026-04-01T14:38:49.229Z",
+        "lastUpdated": "2026-04-01T14:38:49.229Z",
+        "gitCommitSha": "b091cb4179d3b62a6e2a39910461c7ec7165b1ef"
+      }
+    ],
+    "cli-anything@cli-anything": [
+      {
+        "scope": "user",
+        "installPath": "/Users/carlosroberto/.claude/plugins/cache/cli-anything/cli-anything/176ea7826c85",
+        "version": "176ea7826c85",
+        "installedAt": "2026-04-01T14:52:54.071Z",
+        "lastUpdated": "2026-04-01T14:52:54.071Z",
+        "gitCommitSha": "176ea7826c85a80966adb651b7dfdd709c430baf"
+      }
+    ],
+    "ui5-typescript-conversion@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/carlosroberto/.claude/plugins/cache/claude-plugins-official/ui5-typescript-conversion/0.1.0",
+        "version": "0.1.0",
+        "installedAt": "2026-04-02T11:25:51.771Z",
+        "lastUpdated": "2026-04-02T11:25:51.771Z",
+        "gitCommitSha": "5070dfc1cef711d6efad40beb43750027039d71f"
+      }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "claude-plugins-official": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "installLocation": "/Users/carlosroberto/.claude/plugins/marketplaces/claude-plugins-official",
+    "lastUpdated": "2026-04-02T20:58:04.512Z"
+  },
+  "context-mode": {
+    "source": {
+      "source": "github",
+      "repo": "mksglu/context-mode"
+    },
+    "installLocation": "/Users/carlosroberto/.claude/plugins/marketplaces/context-mode",
+    "lastUpdated": "2026-03-30T12:45:28.886Z"
+  },
+  "superpowers-marketplace": {
+    "source": {
+      "source": "github",
+      "repo": "obra/superpowers-marketplace"
+    },
+    "installLocation": "/Users/carlosroberto/.claude/plugins/marketplaces/superpowers-marketplace",
+    "lastUpdated": "2026-04-01T14:08:19.247Z"
+  },
+  "autoresearch": {
+    "source": {
+      "source": "github",
+      "repo": "uditgoenka/autoresearch"
+    },
+    "installLocation": "/Users/carlosroberto/.claude/plugins/marketplaces/autoresearch",
+    "lastUpdated": "2026-04-01T14:35:09.131Z"
+  },
+  "cli-anything": {
+    "source": {
+      "source": "github",
+      "repo": "HKUDS/CLI-Anything"
+    },
+    "installLocation": "/Users/carlosroberto/.claude/plugins/marketplaces/cli-anything",
+    "lastUpdated": "2026-04-01T14:52:40.762Z"
+  }
+}

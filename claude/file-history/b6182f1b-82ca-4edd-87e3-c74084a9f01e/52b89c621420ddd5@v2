@@ -1,0 +1,11 @@
+---
+name: Arquivo de documentação do projeto
+description: O arquivo de documentação/overview do projeto está em bootcamp-treinos.md na raiz do repositório
+type: reference
+---
+
+O arquivo de documentação com stack, arquitetura, endpoints e estrutura do projeto está em:
+
+`/Users/carlosroberto/Projetos/fullstack/fsc/bootcamp/treinos/bootcamp-treinos/bootcamp-treinos.md`
+
+Usar este arquivo para consultar ou atualizar o overview do projeto em conversas futuras.

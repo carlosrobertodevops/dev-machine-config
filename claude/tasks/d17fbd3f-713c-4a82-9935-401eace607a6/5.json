@@ -1,0 +1,8 @@
+{
+  "id": "5",
+  "subject": "Write design doc",
+  "description": "Save to docs/superpowers/specs/YYYY-MM-DD-topic-design.md and commit",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}

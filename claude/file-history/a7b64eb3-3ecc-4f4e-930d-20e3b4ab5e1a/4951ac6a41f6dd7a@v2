@@ -1,0 +1,216 @@
+# FlowBoard — Design Spec
+**Date:** 2026-04-02
+**Status:** Approved
+
+---
+
+## Overview
+
+FlowBoard é um app de gerenciamento de projetos estilo Trello, construído com Next.js 14 (App Router), TypeScript, Tailwind CSS, Zustand, @hello-pangea/dnd e Framer Motion. Dark mode como padrão. Textos em português.
+
+---
+
+## Stack
+
+| Camada | Tecnologia |
+|---|---|
+| Framework | Next.js 14 (App Router) |
+| Linguagem | TypeScript |
+| Estilo | Tailwind CSS v3 |
+| Estado | Zustand |
+| Drag-and-Drop | @hello-pangea/dnd |
+| Animações | Framer Motion |
+| Ícones | Lucide React |
+
+---
+
+## Estrutura de Arquivos
+
+```
+flowboard-cc/
+├── app/
+│   ├── layout.tsx              # Root layout com providers e dark mode
+│   └── page.tsx                # Página principal (sidebar + header + board)
+├── components/
+│   ├── layout/
+│   │   ├── Sidebar.tsx         # Navegação lateral
+│   │   └── Header.tsx          # Barra superior com busca e filtros
+│   ├── board/
+│   │   ├── KanbanBoard.tsx     # DragDropContext + colunas
+│   │   ├── Column.tsx          # Coluna com contador e botão +
+│   │   └── Card.tsx            # Card arrastável com preview
+│   └── modals/
+│       ├── CardModal.tsx       # Modal completo de edição de card
+│       ├── NewCardModal.tsx    # Modal rápido de criação
+│       └── NewBoardModal.tsx   # Modal de criação de quadro
+├── store/
+│   └── useFlowStore.ts         # Zustand store centralizado
+├── data/
+│   └── mockData.ts             # 3 boards, 15+ cards, 4 membros
+└── types/
+    └── index.ts                # Tipos: Board, Column, Card, Member, Priority
+```
+
+---
+
+## Tipos de Dados
+
+```typescript
+type Priority = 'alta' | 'media' | 'baixa'
+
+interface Member {
+  id: string
+  name: string
+  role: string
+  avatar: string        // iniciais para avatar gerado via CSS
+  color: string         // cor do avatar
+  isOnline: boolean
+}
+
+interface ChecklistItem {
+  id: string
+  text: string
+  done: boolean
+}
+
+interface Card {
+  id: string
+  title: string
+  description: string
+  priority: Priority
+  assigneeId: string | null
+  dueDate: string | null   // ISO date string
+  checklist: ChecklistItem[]
+  columnId: string
+}
+
+interface Column {
+  id: string
+  title: string
+  cardIds: string[]
+}
+
+interface Board {
+  id: string
+  name: string
+  columns: Column[]
+}
+```
+
+---
+
+## Estado Zustand (useFlowStore)
+
+```typescript
+interface FlowStore {
+  // Dados
+  boards: Board[]
+  cards: Record<string, Card>   // mapa id → card
+  members: Member[]
+
+  // UI State
+  activeBoardId: string
+  selectedCardId: string | null
+  searchQuery: string
+  filterPriority: Priority | null
+  filterMemberId: string | null
+  darkMode: boolean
+
+  // Actions
+  addBoard(name: string): void
+  addCard(columnId: string, title: string): void
+  updateCard(id: string, updates: Partial<Card>): void
+  deleteCard(id: string): void
+  moveCard(cardId: string, fromCol: string, toCol: string, toIndex: number): void
+  addChecklistItem(cardId: string, text: string): void
+  toggleChecklistItem(cardId: string, itemId: string): void
+  setActiveBoard(id: string): void
+  setSearchQuery(q: string): void
+  setFilterPriority(p: Priority | null): void
+  setFilterMember(id: string | null): void
+  toggleDarkMode(): void
+}
+```
+
+Cards são armazenados em um mapa plano (`Record<string, Card>`). Colunas guardam apenas `cardIds[]`. Isso evita mutação aninhada e torna o reordenamento eficiente.
+
+---
+
+## Componentes
+
+### Sidebar
+- Logo "FlowBoard" com ícone
+- Lista de boards (clique troca `activeBoardId`)
+- Board ativo destacado
+- Botão "+ Novo Quadro" abre `NewBoardModal`
+- Seção "Membros do Time" com avatar, nome, role e badge online/offline
+
+### Header
+- Nome do board ativo (esquerda)
+- Input de busca com ícone — atualiza `searchQuery` no store
+- Dropdown filtro por prioridade (Alta/Média/Baixa/Todos)
+- Dropdown filtro por membro
+- Botão toggle dark/light mode (ícone sol/lua)
+
+### KanbanBoard
+- `DragDropContext onDragEnd` → chama `moveCard`
+- Renderiza 4 colunas em flex row
+- No mobile: `overflow-x-auto` para scroll horizontal
+
+### Column
+- Header com título + contador de cards (filtrado)
+- Lista de `Card` dentro de `Droppable`
+- Botão "+" no rodapé abre `NewCardModal`
+
+### Card (Draggable)
+- Badge de prioridade colorida (vermelho/amarelo/verde)
+- Título
+- Descrição truncada (1 linha)
+- Avatar do responsável
+- Data de vencimento — vermelho se vencida, cinza se ok
+- Barra de progresso do checklist (se tiver itens)
+- Hover effect com elevação de sombra
+- Click abre `CardModal`
+
+### CardModal
+- Overlay com backdrop blur, animação de entrada (Framer Motion scale)
+- Título editável inline (clique → input)
+- Textarea para descrição
+- Seletor de prioridade (3 botões coloridos)
+- DatePicker nativo (`<input type="date">`)
+- Seletor de responsável (lista de avatares clicáveis)
+- Checklist: adicionar item, checkbox por item, barra de progresso
+- Botão "Excluir Card" (vermelho, com confirmação inline)
+- Fechar via ESC, clique no overlay ou botão X
+
+---
+
+## Dados Mockados
+
+**Membros:** Ana (Product, online), Bruno (Dev, online), Carla (Design, offline), Diego (QA, offline)
+
+**Boards:**
+1. **Projeto Website** — cards em todas as colunas, datas variadas (algumas vencidas)
+2. **App Mobile** — cards em progresso e revisão
+3. **Marketing** — cards a fazer e concluídos
+
+Cada board tem mínimo 5 cards distribuídos entre as 4 colunas, com prioridades e responsáveis variados.
+
+---
+
+## Design
+
+- **Dark mode padrão:** `bg-gray-950` / `bg-gray-900` / `bg-gray-800`
+- **Cards:** `bg-gray-800` com `border border-gray-700`, sombra `shadow-md`
+- **Prioridades:** Alta = `red-500`, Média = `yellow-500`, Baixa = `green-500`
+- **Animações:** cards drag com snapshot visual; modal com `initial/animate/exit` do Framer Motion
+- **Responsivo:** sidebar colapsada em mobile; colunas em `min-w-[280px]` com scroll horizontal
+
+---
+
+## Fora do Escopo
+
+- Autenticação/backend
+- Persistência em banco de dados (apenas localStorage opcional)
+- Múltiplos usuários simultâneos
+- Notificações

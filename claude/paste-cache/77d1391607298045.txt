@@ -1,0 +1,51 @@
+Crie um app de gerenciamento de projetos estilo Trello chamado "FlowBoard" usando Next.js, TypeScript e Tailwind CSS.
+O app deve ter:
+
+1. QUADRO KANBAN PRINCIPAL com:
+- 4 colunas padrão: "A Fazer", "Em Progresso", "Em Revisão", "Concluído"
+- Cards arrastáveis entre colunas com drag-and-drop funcional e suave
+- Cada card mostra: título, descrição curta, etiqueta colorida de prioridade (Alta/Média/Baixa), avatar do responsável e data de vencimento
+- Contador de cards em cada coluna
+- Botão de "+" em cada coluna para adicionar novo card rapidamente
+
+2. MODAL DE CARD (ao clicar no card) com:
+- Título editável inline (clica e edita direto)
+- Campo de descrição completa
+- Seletor de prioridade (Alta = vermelho, Média = amarelo, Baixa = verde)
+- Seletor de data de vencimento
+- Seção de checklist (adicionar itens, marcar como feito, barra de progresso)
+- Seletor de responsável (lista mockada de 4 membros do time com avatares)
+- Botão de excluir card
+
+3. SIDEBAR com:
+- Logo "FlowBoard"
+- Lista de quadros (pelo menos 3 quadros mockados: "Projeto Website", "App Mobile", "Marketing")
+- Trocar entre quadros mantém o estado de cada um separado
+- Botão de criar novo quadro
+- Lista de membros do time com status online/offline
+
+4. HEADER com:
+- Nome do quadro atual
+- Campo de busca que filtra cards pelo título em tempo real
+- Filtro por prioridade e por membro
+- Botão de alternar dark/light mode
+
+5. GERENCIAMENTO DE ESTADO:
+- Usar Context API ou Zustand para estado global
+- O estado deve persistir entre navegação dos quadros
+- Todas as ações (criar, editar, mover, excluir) devem atualizar o estado imediatamente
+
+6. DESIGN:
+- Dark mode como padrão
+- Design moderno e limpo
+- Responsivo (no mobile as colunas ficam em scroll horizontal)
+- Animações suaves no drag-and-drop e abertura de modais
+- Cards com sombra sutil e hover effect
+
+
+7. DADOS MOCKADOS:
+- 3 quadros com pelo menos 5 cards cada, distribuídos entre as colunas
+- 4 membros do time: Ana (Product), Bruno (Dev), Carla (Design), Diego (QA)
+- Datas variadas (algumas vencidas para mostrar em vermelho)
+- Textos em português
+Comece implementando tudo e me entregue o projeto funcionando.

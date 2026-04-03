@@ -1,0 +1,1371 @@
+# FlowBoard ShadCN Migration Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Migrate FlowBoard's custom UI primitives (buttons, inputs, modals, badges, progress, checkboxes, selects) to ShadCN UI (canary, Tailwind v4), preserving all behavior, state, and drag-and-drop.
+
+**Architecture:** Install ShadCN canary without `init` (to avoid overwriting `lib/utils.ts`); manually create `components.json` and update `globals.css` with ShadCN CSS variables; install individual components via `npx shadcn@canary add`; replace primitives component by component, keeping DnD structure and Zustand logic intact. `CardModal` and `NewBoardModal` switch from custom Framer Motion overlays to ShadCN `Dialog`.
+
+**Tech Stack:** ShadCN UI (canary), Radix UI, clsx, tailwind-merge, Tailwind v4, Next.js 16, React 19, Zustand, @hello-pangea/dnd, Framer Motion
+
+---
+
+## File Map
+
+| File | Change |
+|---|---|
+| `package.json` | Add clsx, tailwind-merge (installed by shadcn add) |
+| `lib/utils.ts` | Add `cn()` export (prepend, keep all existing functions) |
+| `components.json` | Create — ShadCN project config |
+| `app/globals.css` | Add ShadCN CSS variables (`:root` and `.dark`) |
+| `components/ui/` | Created by `shadcn add` — DO NOT edit manually |
+| `components/layout/Sidebar.tsx` | Replace raw buttons with `Button`; add `Separator` |
+| `components/layout/Header.tsx` | Replace raw input/selects/button with `Input`, `Select`, `Button` |
+| `components/board/Card.tsx` | Replace priority span with `Badge`; replace progress div with `Progress` |
+| `components/board/Column.tsx` | Replace raw buttons/input with `Button`, `Input` |
+| `components/modals/CardModal.tsx` | Replace overlay with `Dialog`; replace form elements with ShadCN primitives |
+| `components/modals/NewBoardModal.tsx` | Replace overlay with `Dialog`; replace form elements with ShadCN primitives |
+| `app/page.tsx` | Remove conditional render of CardModal (Dialog handles open state) |
+
+---
+
+## Task 1: ShadCN Setup — cn(), components.json, globals.css
+
+**Files:**
+- Modify: `lib/utils.ts`
+- Create: `components.json`
+- Modify: `app/globals.css`
+
+- [ ] **Step 1: Install clsx and tailwind-merge**
+
+```bash
+cd /Users/carlosroberto/Projetos/devops/matheus/flowboard-cc
+npm install clsx tailwind-merge
+```
+
+Expected: packages added to `dependencies` in `package.json`.
+
+- [ ] **Step 2: Add `cn()` to lib/utils.ts**
+
+Prepend to `lib/utils.ts` (keep all existing functions below):
+
+```typescript
+import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+import { Priority } from '@/types'
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
+export function getPriorityColor(priority: Priority): string {
+  const map: Record<Priority, string> = {
+    alta: 'bg-red-500/20 text-red-400 border-red-500/30',
+    media: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    baixa: 'bg-green-500/20 text-green-400 border-green-500/30',
+  }
+  return map[priority]
+}
+
+export function getPriorityLabel(priority: Priority): string {
+  const map: Record<Priority, string> = {
+    alta: 'Alta',
+    media: 'Média',
+    baixa: 'Baixa',
+  }
+  return map[priority]
+}
+
+export function isOverdue(dueDate: string | null): boolean {
+  if (!dueDate) return false
+  return new Date(dueDate) < new Date(new Date().toDateString())
+}
+
+export function formatDate(dueDate: string | null): string {
+  if (!dueDate) return ''
+  const [year, month, day] = dueDate.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  })
+}
+
+export function getChecklistProgress(items: { done: boolean }[]): number {
+  if (items.length === 0) return 0
+  return Math.round((items.filter((i) => i.done).length / items.length) * 100)
+}
+
+export function generateId(): string {
+  return Math.random().toString(36).slice(2, 11)
+}
+```
+
+- [ ] **Step 3: Verify existing tests still pass**
+
+```bash
+npx jest lib/utils.test.ts
+```
+
+Expected: 9 tests pass (the `cn` function has no test — it's a well-known utility).
+
+- [ ] **Step 4: Create components.json**
+
+Create `/Users/carlosroberto/Projetos/devops/matheus/flowboard-cc/components.json`:
+
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "default",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "app/globals.css",
+    "baseColor": "slate",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "iconLibrary": "lucide"
+}
+```
+
+- [ ] **Step 5: Update app/globals.css with ShadCN CSS variables**
+
+Replace `app/globals.css` with:
+
+```css
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --background: oklch(0.984 0.003 247.858);
+    --foreground: oklch(0.141 0.005 285.823);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.141 0.005 285.823);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.141 0.005 285.823);
+    --primary: oklch(0.546 0.245 264.376);
+    --primary-foreground: oklch(0.984 0.003 247.858);
+    --secondary: oklch(0.961 0.003 247.858);
+    --secondary-foreground: oklch(0.141 0.005 285.823);
+    --muted: oklch(0.961 0.003 247.858);
+    --muted-foreground: oklch(0.522 0.016 285.938);
+    --accent: oklch(0.961 0.003 247.858);
+    --accent-foreground: oklch(0.141 0.005 285.823);
+    --destructive: oklch(0.577 0.245 27.325);
+    --destructive-foreground: oklch(0.984 0.003 247.858);
+    --border: oklch(0.882 0.006 285.823);
+    --input: oklch(0.882 0.006 285.823);
+    --ring: oklch(0.546 0.245 264.376);
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: oklch(0.065 0.002 285.823);
+    --foreground: oklch(0.984 0.003 247.858);
+    --card: oklch(0.141 0.005 285.823);
+    --card-foreground: oklch(0.984 0.003 247.858);
+    --popover: oklch(0.141 0.005 285.823);
+    --popover-foreground: oklch(0.984 0.003 247.858);
+    --primary: oklch(0.546 0.245 264.376);
+    --primary-foreground: oklch(0.984 0.003 247.858);
+    --secondary: oklch(0.21 0.006 285.885);
+    --secondary-foreground: oklch(0.984 0.003 247.858);
+    --muted: oklch(0.21 0.006 285.885);
+    --muted-foreground: oklch(0.63 0.014 285.938);
+    --accent: oklch(0.21 0.006 285.885);
+    --accent-foreground: oklch(0.984 0.003 247.858);
+    --destructive: oklch(0.577 0.245 27.325);
+    --destructive-foreground: oklch(0.984 0.003 247.858);
+    --border: oklch(0.21 0.006 285.885);
+    --input: oklch(0.21 0.006 285.885);
+    --ring: oklch(0.546 0.245 264.376);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+```
+
+- [ ] **Step 6: Install tailwindcss-animate**
+
+```bash
+npm install tailwindcss-animate
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add lib/utils.ts components.json app/globals.css package.json package-lock.json
+git commit -m "chore: setup ShadCN — cn(), components.json, CSS variables"
+```
+
+---
+
+## Task 2: Install ShadCN Components
+
+**Files:**
+- Create: `components/ui/button.tsx`, `components/ui/input.tsx`, `components/ui/textarea.tsx`, `components/ui/select.tsx`, `components/ui/badge.tsx`, `components/ui/progress.tsx`, `components/ui/checkbox.tsx`, `components/ui/dialog.tsx`, `components/ui/scroll-area.tsx`, `components/ui/separator.tsx`
+
+- [ ] **Step 1: Install all ShadCN components**
+
+```bash
+npx shadcn@canary add button input textarea select badge progress checkbox dialog scroll-area separator --yes
+```
+
+The `--yes` flag skips confirmation prompts. If it asks about overwriting `lib/utils.ts`, answer **No** (we already have our custom version with `cn()`).
+
+If the command asks questions interactively, answer:
+- "Would you like to proceed?" → y
+- Any overwrite of `lib/utils.ts` → n (skip)
+
+- [ ] **Step 2: Verify all components were created**
+
+```bash
+ls /Users/carlosroberto/Projetos/devops/matheus/flowboard-cc/components/ui/
+```
+
+Expected output includes: `button.tsx`, `input.tsx`, `textarea.tsx`, `select.tsx`, `badge.tsx`, `progress.tsx`, `checkbox.tsx`, `dialog.tsx`, `scroll-area.tsx`, `separator.tsx`
+
+- [ ] **Step 3: Verify build still passes**
+
+```bash
+npm run build 2>&1 | tail -5
+```
+
+Expected: `✓ Compiled successfully`
+
+- [ ] **Step 4: Run tests to confirm nothing broke**
+
+```bash
+npm test
+```
+
+Expected: 14 tests pass
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/ui/ package.json package-lock.json
+git commit -m "chore: install ShadCN UI components (button, input, textarea, select, badge, progress, checkbox, dialog, scroll-area, separator)"
+```
+
+---
+
+## Task 3: Migrate Card Component
+
+**Files:**
+- Modify: `components/board/Card.tsx`
+
+Replace the custom priority badge `<span>` with ShadCN `Badge`, and the custom progress bar `<div>` with ShadCN `Progress`.
+
+- [ ] **Step 1: Replace Card.tsx**
+
+Write this exact content to `components/board/Card.tsx`:
+
+```typescript
+'use client'
+
+import { Draggable } from '@hello-pangea/dnd'
+import { motion } from 'framer-motion'
+import { Calendar, CheckSquare } from 'lucide-react'
+import { Card as CardType } from '@/types'
+import { useFlowStore } from '@/store/useFlowStore'
+import { getPriorityColor, getPriorityLabel, isOverdue, formatDate, getChecklistProgress, cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+
+interface CardProps {
+  card: CardType
+  index: number
+}
+
+export default function Card({ card, index }: CardProps) {
+  const { members, setSelectedCard } = useFlowStore()
+  const assignee = members.find((m) => m.id === card.assigneeId)
+  const progress = getChecklistProgress(card.checklist)
+  const overdue = isOverdue(card.dueDate)
+
+  return (
+    <Draggable draggableId={card.id} index={index}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+          style={provided.draggableProps.style}
+        >
+          <motion.div
+            layout
+            onClick={() => setSelectedCard(card.id)}
+            className={cn(
+              'bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 cursor-pointer',
+              'hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-lg hover:shadow-black/20',
+              'transition-all duration-150',
+              snapshot.isDragging && 'shadow-2xl shadow-black/40 rotate-1 border-indigo-500/50'
+            )}
+          >
+            {/* Priority badge + assignee */}
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <Badge
+                variant="outline"
+                className={cn('text-xs font-medium', getPriorityColor(card.priority))}
+              >
+                {getPriorityLabel(card.priority)}
+              </Badge>
+              {assignee && (
+                <div
+                  className={`w-6 h-6 rounded-full ${assignee.color} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}
+                  title={assignee.name}
+                >
+                  {assignee.initials}
+                </div>
+              )}
+            </div>
+
+            {/* Title */}
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1 leading-snug">
+              {card.title}
+            </h3>
+
+            {/* Description */}
+            {card.description && (
+              <p className="text-xs text-gray-400 mb-2 line-clamp-1">{card.description}</p>
+            )}
+
+            {/* Checklist progress */}
+            {card.checklist.length > 0 && (
+              <div className="mb-2">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <CheckSquare size={11} className="text-gray-400" />
+                  <span className="text-xs text-gray-400">
+                    {card.checklist.filter((i) => i.done).length}/{card.checklist.length}
+                  </span>
+                </div>
+                <Progress value={progress} className="h-1" />
+              </div>
+            )}
+
+            {/* Due date */}
+            {card.dueDate && (
+              <div className={cn('flex items-center gap-1 text-xs', overdue ? 'text-red-400' : 'text-gray-400')}>
+                <Calendar size={11} />
+                <span>{formatDate(card.dueDate)}</span>
+                {overdue && <span className="text-red-400 font-medium">• Atrasado</span>}
+              </div>
+            )}
+          </motion.div>
+        </div>
+      )}
+    </Draggable>
+  )
+}
+```
+
+- [ ] **Step 2: Verify build**
+
+```bash
+npm run build 2>&1 | tail -5
+```
+
+Expected: `✓ Compiled successfully`
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add components/board/Card.tsx
+git commit -m "refactor: migrate Card to use ShadCN Badge and Progress"
+```
+
+---
+
+## Task 4: Migrate Column Component
+
+**Files:**
+- Modify: `components/board/Column.tsx`
+
+Replace raw `<button>` and `<input>` elements with ShadCN `Button` and `Input`.
+
+- [ ] **Step 1: Replace Column.tsx**
+
+```typescript
+'use client'
+
+import { useState } from 'react'
+import { Droppable } from '@hello-pangea/dnd'
+import { Plus } from 'lucide-react'
+import { Column as ColumnType, Card as CardType } from '@/types'
+import { useFlowStore } from '@/store/useFlowStore'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import CardComponent from './Card'
+
+interface ColumnProps {
+  column: ColumnType
+  cards: CardType[]
+  boardId: string
+}
+
+const COLUMN_HEADER_COLORS: Record<string, string> = {
+  'A Fazer': 'bg-gray-500/20 text-gray-300',
+  'Em Progresso': 'bg-blue-500/20 text-blue-300',
+  'Em Revisão': 'bg-yellow-500/20 text-yellow-300',
+  'Concluído': 'bg-green-500/20 text-green-300',
+}
+
+export default function Column({ column, cards, boardId }: ColumnProps) {
+  const { addCard } = useFlowStore()
+  const [isAddingCard, setIsAddingCard] = useState(false)
+  const [newCardTitle, setNewCardTitle] = useState('')
+
+  const headerColor = COLUMN_HEADER_COLORS[column.title] ?? 'bg-gray-500/20 text-gray-300'
+
+  const handleAddCard = () => {
+    if (!newCardTitle.trim()) return
+    addCard(column.id, boardId, newCardTitle.trim())
+    setNewCardTitle('')
+    setIsAddingCard(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleAddCard()
+    if (e.key === 'Escape') {
+      setIsAddingCard(false)
+      setNewCardTitle('')
+    }
+  }
+
+  return (
+    <div className="flex flex-col w-72 min-w-[288px] bg-gray-100/50 dark:bg-gray-900/50 rounded-2xl border border-gray-200 dark:border-gray-800">
+      {/* Column header */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{column.title}</h2>
+          <span className={cn('inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold', headerColor)}>
+            {cards.length}
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setIsAddingCard(true)}
+          className="h-6 w-6 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+          title="Adicionar card"
+        >
+          <Plus size={14} />
+        </Button>
+      </div>
+
+      {/* Cards */}
+      <Droppable droppableId={column.id}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={cn(
+              'flex-1 min-h-[80px] px-3 pb-3 space-y-2 transition-colors',
+              snapshot.isDraggingOver && 'bg-indigo-500/5 rounded-b-2xl'
+            )}
+          >
+            {cards.map((card, index) => (
+              <CardComponent key={card.id} card={card} index={index} />
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+
+      {/* Add card */}
+      {isAddingCard ? (
+        <div className="px-3 pb-3 space-y-2">
+          <Input
+            autoFocus
+            placeholder="Título do card..."
+            value={newCardTitle}
+            onChange={(e) => setNewCardTitle(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => { if (!newCardTitle.trim()) setIsAddingCard(false) }}
+            className="text-sm"
+          />
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleAddCard} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs">
+              Adicionar
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setIsAddingCard(false); setNewCardTitle('') }}
+              className="text-xs text-gray-500 dark:text-gray-400"
+            >
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button
+          variant="ghost"
+          onClick={() => setIsAddingCard(true)}
+          className="mx-3 mb-3 h-8 border border-dashed border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500 text-xs rounded-lg"
+        >
+          <Plus size={12} />
+          Adicionar card
+        </Button>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Verify build**
+
+```bash
+npm run build 2>&1 | tail -5
+```
+
+Expected: `✓ Compiled successfully`
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add components/board/Column.tsx
+git commit -m "refactor: migrate Column to use ShadCN Button and Input"
+```
+
+---
+
+## Task 5: Migrate Sidebar Component
+
+**Files:**
+- Modify: `components/layout/Sidebar.tsx`
+
+Replace raw `<button>` elements with ShadCN `Button`, and add `Separator` between sections.
+
+- [ ] **Step 1: Replace Sidebar.tsx**
+
+```typescript
+'use client'
+
+import { useState } from 'react'
+import { LayoutDashboard, Plus, Wifi, WifiOff } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { useFlowStore } from '@/store/useFlowStore'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
+import NewBoardModal from '@/components/modals/NewBoardModal'
+
+export default function Sidebar() {
+  const { boards, members, activeBoardId, setActiveBoard } = useFlowStore()
+  const [showNewBoard, setShowNewBoard] = useState(false)
+
+  return (
+    <>
+      <aside className="w-64 min-h-screen bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
+        {/* Logo */}
+        <div className="p-5">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center">
+              <LayoutDashboard size={16} className="text-white" />
+            </div>
+            <span className="text-lg font-bold text-gray-900 dark:text-white">FlowBoard</span>
+          </div>
+        </div>
+
+        <Separator className="bg-gray-200 dark:bg-gray-800" />
+
+        {/* Boards */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Quadros
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowNewBoard(true)}
+              className="h-6 w-6 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+              title="Novo quadro"
+            >
+              <Plus size={14} />
+            </Button>
+          </div>
+
+          <nav className="space-y-1">
+            {boards.map((board) => (
+              <motion.div key={board.id} whileTap={{ scale: 0.97 }}>
+                <Button
+                  variant="ghost"
+                  onClick={() => setActiveBoard(board.id)}
+                  className={cn(
+                    'w-full justify-start gap-2 text-sm h-9',
+                    activeBoardId === board.id
+                      ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 font-medium hover:bg-indigo-500/20'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'w-2 h-2 rounded-full flex-shrink-0',
+                      activeBoardId === board.id ? 'bg-indigo-400' : 'bg-gray-400 dark:bg-gray-600'
+                    )}
+                  />
+                  {board.name}
+                </Button>
+              </motion.div>
+            ))}
+          </nav>
+
+          <Separator className="my-4 bg-gray-200 dark:bg-gray-800" />
+
+          {/* Members */}
+          <div>
+            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Time
+            </span>
+            <div className="mt-3 space-y-2">
+              {members.map((member) => (
+                <div key={member.id} className="flex items-center gap-3 px-1">
+                  <div className="relative">
+                    <div
+                      className={`w-8 h-8 rounded-full ${member.color} flex items-center justify-center text-xs font-bold text-white`}
+                    >
+                      {member.initials}
+                    </div>
+                    <span
+                      className={cn(
+                        'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-gray-900',
+                        member.isOnline ? 'bg-green-400' : 'bg-gray-500'
+                      )}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{member.name}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">{member.role}</p>
+                  </div>
+                  {member.isOnline ? (
+                    <Wifi size={12} className="text-green-400 flex-shrink-0" />
+                  ) : (
+                    <WifiOff size={12} className="text-gray-600 flex-shrink-0" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <NewBoardModal open={showNewBoard} onClose={() => setShowNewBoard(false)} />
+    </>
+  )
+}
+```
+
+**Note:** `NewBoardModal` now receives `open` prop (updated in Task 8) instead of conditional rendering.
+
+- [ ] **Step 2: Commit (before NewBoardModal is updated — build will fail temporarily, that's ok)**
+
+Skip build check for now — NewBoardModal signature change comes in Task 8. Proceed to Task 6 and 7 first, then verify build after Task 8.
+
+```bash
+git add components/layout/Sidebar.tsx
+git commit -m "refactor: migrate Sidebar to use ShadCN Button and Separator"
+```
+
+---
+
+## Task 6: Migrate Header Component
+
+**Files:**
+- Modify: `components/layout/Header.tsx`
+
+Replace raw `<input>`, `<select>`, `<button>` with ShadCN `Input`, `Select`, `Button`.
+
+- [ ] **Step 1: Replace Header.tsx**
+
+```typescript
+'use client'
+
+import { Search, Sun, Moon, X } from 'lucide-react'
+import { useFlowStore } from '@/store/useFlowStore'
+import { Priority } from '@/types'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+
+const PRIORITY_OPTIONS: { value: Priority | null; label: string }[] = [
+  { value: null, label: 'Todas as prioridades' },
+  { value: 'alta', label: 'Alta' },
+  { value: 'media', label: 'Média' },
+  { value: 'baixa', label: 'Baixa' },
+]
+
+export default function Header() {
+  const {
+    boards, activeBoardId, members,
+    searchQuery, filterPriority, filterMemberId,
+    darkMode,
+    setSearchQuery, setFilterPriority, setFilterMember, toggleDarkMode,
+  } = useFlowStore()
+
+  const activeBoard = boards.find((b) => b.id === activeBoardId)
+
+  return (
+    <header className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center gap-3 px-6 flex-shrink-0">
+      {/* Board name */}
+      <h1 className="text-lg font-bold text-gray-900 dark:text-white min-w-0 truncate mr-2">
+        {activeBoard?.name}
+      </h1>
+
+      {/* Search */}
+      <div className="relative flex-1 max-w-xs">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <Input
+          placeholder="Buscar cards..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9 pr-8 h-8 text-sm bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700"
+        />
+        {searchQuery && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 text-gray-400 hover:text-gray-700 dark:hover:text-white"
+          >
+            <X size={14} />
+          </Button>
+        )}
+      </div>
+
+      {/* Priority filter */}
+      <Select
+        value={filterPriority ?? 'all'}
+        onValueChange={(v) => setFilterPriority(v === 'all' ? null : (v as Priority))}
+      >
+        <SelectTrigger className="w-44 h-8 text-sm bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {PRIORITY_OPTIONS.map((opt) => (
+            <SelectItem key={String(opt.value)} value={opt.value ?? 'all'}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* Member filter */}
+      <Select
+        value={filterMemberId ?? 'all'}
+        onValueChange={(v) => setFilterMember(v === 'all' ? null : v)}
+      >
+        <SelectTrigger className="w-44 h-8 text-sm bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700">
+          <SelectValue placeholder="Todos os membros" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Todos os membros</SelectItem>
+          {members.map((m) => (
+            <SelectItem key={m.id} value={m.id}>
+              {m.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* Dark mode toggle */}
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={toggleDarkMode}
+        className="ml-auto text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+        title={darkMode ? 'Modo claro' : 'Modo escuro'}
+      >
+        {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+      </Button>
+    </header>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add components/layout/Header.tsx
+git commit -m "refactor: migrate Header to use ShadCN Input, Select, and Button"
+```
+
+---
+
+## Task 7: Migrate CardModal Component
+
+**Files:**
+- Modify: `components/modals/CardModal.tsx`
+- Modify: `app/page.tsx` (remove conditional render — Dialog handles open state)
+
+Replace Framer Motion overlay with ShadCN `Dialog`. Replace form elements with ShadCN primitives.
+
+- [ ] **Step 1: Replace CardModal.tsx**
+
+```typescript
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { Trash2, Plus, Calendar } from 'lucide-react'
+import { useFlowStore } from '@/store/useFlowStore'
+import { Priority } from '@/types'
+import { getPriorityColor, getPriorityLabel, getChecklistProgress, cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+
+const PRIORITIES: Priority[] = ['alta', 'media', 'baixa']
+
+export default function CardModal() {
+  const {
+    selectedCardId, cards, members,
+    setSelectedCard, updateCard, deleteCard,
+    addChecklistItem, toggleChecklistItem,
+  } = useFlowStore()
+
+  const card = selectedCardId ? cards[selectedCardId] : null
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleValue, setTitleValue] = useState('')
+  const [newChecklistText, setNewChecklistText] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (card) {
+      setTitleValue(card.title)
+      setEditingTitle(false)
+      setConfirmDelete(false)
+    }
+  }, [selectedCardId])
+
+  useEffect(() => {
+    if (editingTitle) titleInputRef.current?.focus()
+  }, [editingTitle])
+
+  const progress = card ? getChecklistProgress(card.checklist) : 0
+
+  const handleTitleSave = () => {
+    if (card && titleValue.trim()) updateCard(card.id, { title: titleValue.trim() })
+    setEditingTitle(false)
+  }
+
+  const handleAddChecklist = () => {
+    if (!card || !newChecklistText.trim()) return
+    addChecklistItem(card.id, newChecklistText.trim())
+    setNewChecklistText('')
+  }
+
+  const handleDelete = () => {
+    if (!card) return
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    deleteCard(card.id)
+    setSelectedCard(null)
+  }
+
+  return (
+    <Dialog
+      open={!!selectedCardId}
+      onOpenChange={(open) => { if (!open) setSelectedCard(null) }}
+    >
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700">
+        {card && (
+          <>
+            <DialogHeader className="pb-0">
+              {editingTitle ? (
+                <Input
+                  ref={titleInputRef}
+                  value={titleValue}
+                  onChange={(e) => setTitleValue(e.target.value)}
+                  onBlur={handleTitleSave}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleTitleSave()
+                    if (e.key === 'Escape') setEditingTitle(false)
+                  }}
+                  className="text-xl font-bold h-auto py-1 border-indigo-500 focus-visible:ring-indigo-500"
+                />
+              ) : (
+                <DialogTitle
+                  className="text-xl font-bold text-gray-900 dark:text-white cursor-pointer hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors text-left"
+                  onClick={() => setEditingTitle(true)}
+                  title="Clique para editar"
+                >
+                  {card.title}
+                </DialogTitle>
+              )}
+            </DialogHeader>
+
+            <div className="space-y-5 pt-2">
+              {/* Description */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  Descrição
+                </label>
+                <Textarea
+                  value={card.description}
+                  onChange={(e) => updateCard(card.id, { description: e.target.value })}
+                  placeholder="Adicionar uma descrição..."
+                  rows={3}
+                  className="resize-none bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-sm text-gray-800 dark:text-gray-200"
+                />
+              </div>
+
+              {/* Priority */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  Prioridade
+                </label>
+                <div className="flex gap-2">
+                  {PRIORITIES.map((p) => (
+                    <Button
+                      key={p}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => updateCard(card.id, { priority: p })}
+                      className={cn(
+                        'text-xs',
+                        card.priority === p
+                          ? getPriorityColor(p) + ' ring-1 ring-current border-current'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-700'
+                      )}
+                    >
+                      {getPriorityLabel(p)}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Due date */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar size={12} />
+                    Data de Vencimento
+                  </span>
+                </label>
+                <Input
+                  type="date"
+                  value={card.dueDate ?? ''}
+                  onChange={(e) => updateCard(card.id, { dueDate: e.target.value || null })}
+                  className="w-auto bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-sm dark:[color-scheme:dark]"
+                />
+              </div>
+
+              {/* Assignee */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  Responsável
+                </label>
+                <div className="flex gap-2 flex-wrap">
+                  {members.map((member) => (
+                    <Button
+                      key={member.id}
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        updateCard(card.id, {
+                          assigneeId: card.assigneeId === member.id ? null : member.id,
+                        })
+                      }
+                      className={cn(
+                        'gap-2 text-sm',
+                        card.assigneeId === member.id
+                          ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300'
+                          : 'border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400'
+                      )}
+                    >
+                      <div
+                        className={`w-5 h-5 rounded-full ${member.color} flex items-center justify-center text-xs font-bold text-white`}
+                      >
+                        {member.initials}
+                      </div>
+                      {member.name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Checklist */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Checklist
+                  </label>
+                  {card.checklist.length > 0 && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{progress}%</span>
+                  )}
+                </div>
+
+                {card.checklist.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    <Progress value={progress} className="h-1.5" />
+                    <div className="space-y-2">
+                      {card.checklist.map((item) => (
+                        <div key={item.id} className="flex items-center gap-3">
+                          <Checkbox
+                            id={item.id}
+                            checked={item.done}
+                            onCheckedChange={() => toggleChecklistItem(card.id, item.id)}
+                            className="border-gray-400 dark:border-gray-600"
+                          />
+                          <label
+                            htmlFor={item.id}
+                            className={cn(
+                              'text-sm flex-1 cursor-pointer',
+                              item.done
+                                ? 'line-through text-gray-400 dark:text-gray-500'
+                                : 'text-gray-800 dark:text-gray-200'
+                            )}
+                          >
+                            {item.text}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Novo item..."
+                    value={newChecklistText}
+                    onChange={(e) => setNewChecklistText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddChecklist() }}
+                    className="text-sm bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    onClick={handleAddChecklist}
+                    className="shrink-0"
+                  >
+                    <Plus size={16} />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Delete */}
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={confirmDelete ? 'destructive' : 'ghost'}
+                    size="sm"
+                    onClick={handleDelete}
+                    className={cn(
+                      'gap-2',
+                      !confirmDelete && 'text-red-500 hover:text-red-600 hover:bg-red-500/10'
+                    )}
+                  >
+                    <Trash2 size={16} />
+                    {confirmDelete ? 'Confirmar exclusão' : 'Excluir card'}
+                  </Button>
+                  {confirmDelete && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirmDelete(false)}
+                      className="text-gray-500 dark:text-gray-400"
+                    >
+                      Cancelar
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+```
+
+- [ ] **Step 2: Update app/page.tsx — always render CardModal (Dialog manages open state)**
+
+```typescript
+'use client'
+
+import { useEffect } from 'react'
+import { useFlowStore } from '@/store/useFlowStore'
+import Sidebar from '@/components/layout/Sidebar'
+import Header from '@/components/layout/Header'
+import KanbanBoard from '@/components/board/KanbanBoard'
+import CardModal from '@/components/modals/CardModal'
+
+export default function Home() {
+  const { darkMode } = useFlowStore()
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [darkMode])
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+      <Sidebar />
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <Header />
+        <main className="flex-1 overflow-auto">
+          <KanbanBoard />
+        </main>
+      </div>
+      <CardModal />
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add components/modals/CardModal.tsx app/page.tsx
+git commit -m "refactor: migrate CardModal to ShadCN Dialog, Input, Textarea, Checkbox, Progress, Button"
+```
+
+---
+
+## Task 8: Migrate NewBoardModal Component
+
+**Files:**
+- Modify: `components/modals/NewBoardModal.tsx`
+
+Replace Framer Motion overlay with ShadCN `Dialog`. Update interface to accept `open` prop (Sidebar already passes it from Task 5).
+
+- [ ] **Step 1: Replace NewBoardModal.tsx**
+
+```typescript
+'use client'
+
+import { useState } from 'react'
+import { useFlowStore } from '@/store/useFlowStore'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+
+interface NewBoardModalProps {
+  open: boolean
+  onClose: () => void
+}
+
+export default function NewBoardModal({ open, onClose }: NewBoardModalProps) {
+  const [name, setName] = useState('')
+  const { addBoard } = useFlowStore()
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+    addBoard(name.trim())
+    setName('')
+    onClose()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setName(''); onClose() } }}>
+      <DialogContent className="max-w-sm bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700">
+        <DialogHeader>
+          <DialogTitle className="text-gray-900 dark:text-white">Novo Quadro</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <Input
+            autoFocus
+            placeholder="Nome do quadro..."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700"
+          />
+          <div className="flex gap-3 justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => { setName(''); onClose() }}
+              className="text-gray-500 dark:text-gray-400"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              disabled={!name.trim()}
+              className="bg-indigo-500 hover:bg-indigo-600 text-white"
+            >
+              Criar Quadro
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+```
+
+- [ ] **Step 2: Verify full build**
+
+```bash
+npm run build 2>&1 | tail -10
+```
+
+Expected: `✓ Compiled successfully` — all 4 pages generated.
+
+- [ ] **Step 3: Run all tests**
+
+```bash
+npm test
+```
+
+Expected: 14 tests pass (store and utils — no component tests affected).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add components/modals/NewBoardModal.tsx
+git commit -m "refactor: migrate NewBoardModal to ShadCN Dialog, Input, Button"
+```
+
+---
+
+## Task 9: Final Verification
+
+**Files:** None (verification only)
+
+- [ ] **Step 1: Run full build**
+
+```bash
+npm run build
+```
+
+Expected output:
+```
+✓ Compiled successfully
+✓ Generating static pages using 5 workers (4/4)
+Route (app)
+├ ○ /
+└ ○ /_not-found
+```
+
+- [ ] **Step 2: Run all tests**
+
+```bash
+npm test
+```
+
+Expected: `Tests: 14 passed, 14 total`
+
+- [ ] **Step 3: Run TypeScript check**
+
+```bash
+npx tsc --noEmit
+```
+
+Expected: no errors (test files may show @types/jest warnings — ignore those)
+
+- [ ] **Step 4: Verify ShadCN components are present**
+
+```bash
+ls components/ui/
+```
+
+Expected: `badge.tsx  button.tsx  checkbox.tsx  dialog.tsx  input.tsx  progress.tsx  scroll-area.tsx  select.tsx  separator.tsx  textarea.tsx`
+
+- [ ] **Step 5: Final commit**
+
+```bash
+git add -A
+git commit -m "chore: ShadCN UI migration complete — all components verified"
+```
+
+---
+
+## Self-Review
+
+**Spec coverage:**
+- ✅ Button → all `<button>` elements in Sidebar, Header, Column, CardModal, NewBoardModal (Tasks 4-8)
+- ✅ Input → all `<input type="text">` in Column, Header, CardModal, NewBoardModal (Tasks 4-8)
+- ✅ Textarea → CardModal description (Task 7)
+- ✅ Select → Header priority and member filters (Task 6)
+- ✅ Badge → Card priority badge (Task 3)
+- ✅ Progress → Card and CardModal checklist progress (Tasks 3, 7)
+- ✅ Checkbox → CardModal checklist items (Task 7)
+- ✅ Dialog → CardModal and NewBoardModal (Tasks 7, 8)
+- ✅ Separator → Sidebar between sections (Task 5)
+- ✅ ScrollArea → Not used (columns use overflow-y-auto natively — ScrollArea would constrain height unnecessarily)
+- ✅ cn() helper added to lib/utils.ts (Task 1)
+- ✅ components.json created (Task 1)
+- ✅ globals.css with ShadCN CSS variables + @custom-variant dark preserved (Task 1)
+- ✅ KanbanBoard, store, types, mockData — unchanged
+- ✅ 14 existing tests unaffected
+
+**Type consistency:**
+- `NewBoardModal` interface changes from `{ onClose }` to `{ open, onClose }` — Sidebar (Task 5) passes both props correctly.
+- `CardModal` no longer needs `selectedCardId` check in page.tsx — Dialog `open` prop handles it.
+- `cn()` imported from `@/lib/utils` in all components — consistent.

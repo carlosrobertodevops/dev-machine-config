@@ -1,0 +1,91 @@
+'use client'
+
+import { Draggable } from '@hello-pangea/dnd'
+import { motion } from 'framer-motion'
+import { Calendar, CheckSquare } from 'lucide-react'
+import { Card as CardType } from '@/types'
+import { useFlowStore } from '@/store/useFlowStore'
+import { getPriorityColor, getPriorityLabel, isOverdue, formatDate, getChecklistProgress, cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+
+interface CardProps {
+  card: CardType
+  index: number
+}
+
+export default function Card({ card, index }: CardProps) {
+  const { members, setSelectedCard } = useFlowStore()
+  const assignee = members.find((m) => m.id === card.assigneeId)
+  const progress = getChecklistProgress(card.checklist)
+  const overdue = isOverdue(card.dueDate)
+
+  return (
+    <Draggable draggableId={card.id} index={index}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+          style={provided.draggableProps.style}
+        >
+          <motion.div
+            layout
+            onClick={() => setSelectedCard(card.id)}
+            className={cn(
+              'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 cursor-pointer',
+              'hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-lg hover:shadow-black/20',
+              'transition-all duration-150',
+              snapshot.isDragging && 'shadow-2xl shadow-black/40 rotate-1 border-indigo-500/50'
+            )}
+          >
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <Badge
+                variant="outline"
+                className={cn('text-xs font-medium', getPriorityColor(card.priority))}
+              >
+                {getPriorityLabel(card.priority)}
+              </Badge>
+              {assignee && (
+                <div
+                  className={`w-6 h-6 rounded-full ${assignee.color} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}
+                  title={assignee.name}
+                >
+                  {assignee.initials}
+                </div>
+              )}
+            </div>
+
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1 leading-snug">
+              {card.title}
+            </h3>
+
+            {card.description && (
+              <p className="text-xs text-gray-400 mb-2 line-clamp-1">{card.description}</p>
+            )}
+
+            {card.checklist.length > 0 && (
+              <div className="mb-2">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <CheckSquare size={11} className="text-gray-400" />
+                  <span className="text-xs text-gray-400">
+                    {card.checklist.filter((i) => i.done).length}/{card.checklist.length}
+                  </span>
+                </div>
+                <Progress value={progress} className="h-1" />
+              </div>
+            )}
+
+            {card.dueDate && (
+              <div className={cn('flex items-center gap-1 text-xs', overdue ? 'text-red-400' : 'text-gray-400')}>
+                <Calendar size={11} />
+                <span>{formatDate(card.dueDate)}</span>
+                {overdue && <span className="text-red-400 font-medium">• Atrasado</span>}
+              </div>
+            )}
+          </motion.div>
+        </div>
+      )}
+    </Draggable>
+  )
+}

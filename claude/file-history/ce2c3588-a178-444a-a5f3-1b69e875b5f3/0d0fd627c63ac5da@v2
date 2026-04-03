@@ -1,0 +1,58 @@
+# Estrutura do Projeto bootcamp-treinos
+
+## Estrutura de Diretórios
+
+```
+bootcamp-treinos/
+├── prisma/
+│   └── schema.prisma              # Schema do banco de dados
+├── src/
+│   ├── index.ts                   # Entry point (Fastify server)
+│   ├── errors/
+│   │   └── index.ts               # Classes de erro customizadas
+│   ├── lib/
+│   │   ├── auth.ts                # Better-Auth config
+│   │   └── db.ts                  # Prisma client
+│   ├── schemas/
+│   │   └── index.ts               # Schemas Zod (request/response)
+│   ├── routes/
+│   │   ├── ai.ts                  # Rotas de IA
+│   │   ├── home.ts                # Rota home
+│   │   ├── me.ts                  # Rota perfil do usuário
+│   │   ├── stats.ts               # Rota de estatísticas
+│   │   └── workout-plan.ts        # Rotas de planos de treino
+│   ├── usecases/
+│   │   ├── CreateWorkoutPlan.ts
+│   │   ├── GetHomeData.ts
+│   │   ├── GetStats.ts
+│   │   ├── GetUserTrainData.ts
+│   │   ├── GetWorkoutDay.ts
+│   │   ├── GetWorkoutPlan.ts
+│   │   ├── ListWorkoutPlans.ts
+│   │   ├── StartWorkoutSession.ts
+│   │   ├── UpdateWorkoutSession.ts
+│   │   └── UpsertUserTrainData.ts
+│   └── generated/
+│       └── prisma/                # Prisma client gerado (gitignored)
+│           ├── enums.ts           # Enums (WeekDay etc.)
+│           └── models/            # Tipos dos models
+```
+
+## Modelos do Banco
+
+- **User** — dados do usuário + dados físicos (peso, altura, idade, %gordura)
+- **WorkoutPlan** — plano de treino (um ativo por usuário)
+- **WorkoutDay** — dia de treino com `WeekDay` enum
+- **WorkoutExercise** — exercícios do dia (ordem, sets, reps, descanso)
+- **WorkoutSession** — sessões iniciadas/concluídas
+- **Session / Account / Verification** — tabelas do Better-Auth
+
+## Fluxo de Camadas
+
+```
+Route → Use Case → Prisma
+```
+
+- **Routes**: validação Zod + autenticação via `auth.api.getSession`
+- **Use Cases**: lógica de negócio, transações Prisma, mapeamento para DTOs
+- **Schemas**: Zod schemas compartilhados entre rotas e OpenAPI docs

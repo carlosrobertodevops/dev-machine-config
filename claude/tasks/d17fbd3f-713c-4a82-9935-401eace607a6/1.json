@@ -1,0 +1,9 @@
+{
+  "id": "1",
+  "subject": "Explore project context",
+  "description": "Check files, docs, recent commits to understand the current project state",
+  "activeForm": "Exploring project context",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

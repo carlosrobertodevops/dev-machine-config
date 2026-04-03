@@ -1,0 +1,24 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash /Users/carlosroberto/.claude/statusline-command.sh"
+  },
+  "enabledPlugins": {
+    "context-mode@context-mode": true
+  },
+  "extraKnownMarketplaces": {
+    "context-mode": {
+      "source": {
+        "source": "github",
+        "repo": "mksglu/context-mode"
+      }
+    }
+  },
+  "model": "sonnet[1m]",
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
+    "ANTHROPIC_AUTH_TOKEN": "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",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_MODEL": "google/gemini-2.5-pro-preview"
+  }
+}

@@ -1,0 +1,123 @@
+'use client'
+
+import { useState } from 'react'
+import { Droppable } from '@hello-pangea/dnd'
+import { Plus } from 'lucide-react'
+import { Column as ColumnType, Card as CardType } from '@/types'
+import { useFlowStore } from '@/store/useFlowStore'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import CardComponent from './Card'
+
+interface ColumnProps {
+  column: ColumnType
+  cards: CardType[]
+  boardId: string
+}
+
+const COLUMN_HEADER_COLORS: Record<string, string> = {
+  'A Fazer': 'bg-gray-500/20 text-gray-600 dark:text-gray-300',
+  'Em Progresso': 'bg-blue-500/20 text-blue-600 dark:text-blue-300',
+  'Em Revisão': 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-300',
+  'Concluído': 'bg-green-500/20 text-green-600 dark:text-green-300',
+}
+
+export default function Column({ column, cards, boardId }: ColumnProps) {
+  const { addCard } = useFlowStore()
+  const [isAddingCard, setIsAddingCard] = useState(false)
+  const [newCardTitle, setNewCardTitle] = useState('')
+
+  const headerColor = COLUMN_HEADER_COLORS[column.title] ?? 'bg-gray-500/20 text-gray-600 dark:text-gray-300'
+
+  const handleAddCard = () => {
+    if (!newCardTitle.trim()) return
+    addCard(column.id, boardId, newCardTitle.trim())
+    setNewCardTitle('')
+    setIsAddingCard(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleAddCard()
+    if (e.key === 'Escape') {
+      setIsAddingCard(false)
+      setNewCardTitle('')
+    }
+  }
+
+  return (
+    <div className="flex flex-col w-72 min-w-[288px] bg-gray-100/50 dark:bg-gray-900/50 rounded-2xl border border-gray-200 dark:border-gray-800">
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{column.title}</h2>
+          <span className={cn('inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold', headerColor)}>
+            {cards.length}
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setIsAddingCard(true)}
+          className="h-6 w-6 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+          title="Adicionar card"
+        >
+          <Plus size={14} />
+        </Button>
+      </div>
+
+      <Droppable droppableId={column.id}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={cn(
+              'flex-1 min-h-[80px] px-3 pb-3 space-y-2 transition-colors',
+              snapshot.isDraggingOver && 'bg-indigo-500/5 rounded-b-2xl'
+            )}
+          >
+            {cards.map((card, index) => (
+              <CardComponent key={card.id} card={card} index={index} />
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+
+      {isAddingCard ? (
+        <div className="px-3 pb-3 space-y-2">
+          <Input
+            autoFocus
+            placeholder="Título do card..."
+            value={newCardTitle}
+            onChange={(e) => setNewCardTitle(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => { if (!newCardTitle.trim()) setIsAddingCard(false) }}
+            className="text-sm"
+          />
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleAddCard} className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs">
+              Adicionar
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setIsAddingCard(false); setNewCardTitle('') }}
+              className="text-xs text-gray-500 dark:text-gray-400"
+            >
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button
+          variant="ghost"
+          onClick={() => setIsAddingCard(true)}
+          className="mx-3 mb-3 h-8 border border-dashed border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500 text-xs rounded-lg"
+        >
+          <Plus size={12} />
+          Adicionar card
+        </Button>
+      )}
+    </div>
+  )
+}

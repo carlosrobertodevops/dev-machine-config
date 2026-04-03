@@ -1,0 +1,285 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { Trash2, Plus, Calendar } from 'lucide-react'
+import { useFlowStore } from '@/store/useFlowStore'
+import { Priority } from '@/types'
+import { getPriorityColor, getPriorityLabel, getChecklistProgress, cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Progress } from '@/components/ui/progress'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+
+const PRIORITIES: Priority[] = ['alta', 'media', 'baixa']
+
+export default function CardModal() {
+  const {
+    selectedCardId, cards, members,
+    setSelectedCard, updateCard, deleteCard,
+    addChecklistItem, toggleChecklistItem,
+  } = useFlowStore()
+
+  const card = selectedCardId ? cards[selectedCardId] : null
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleValue, setTitleValue] = useState('')
+  const [newChecklistText, setNewChecklistText] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (card) {
+      setTitleValue(card.title)
+      setEditingTitle(false)
+      setConfirmDelete(false)
+    }
+  }, [selectedCardId, card])
+
+  useEffect(() => {
+    if (editingTitle) titleInputRef.current?.focus()
+  }, [editingTitle])
+
+  const progress = card ? getChecklistProgress(card.checklist) : 0
+
+  const handleTitleSave = () => {
+    if (card && titleValue.trim()) updateCard(card.id, { title: titleValue.trim() })
+    setEditingTitle(false)
+  }
+
+  const handleAddChecklist = () => {
+    if (!card || !newChecklistText.trim()) return
+    addChecklistItem(card.id, newChecklistText.trim())
+    setNewChecklistText('')
+  }
+
+  const handleDelete = () => {
+    if (!card) return
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    deleteCard(card.id)
+    setSelectedCard(null)
+  }
+
+  return (
+    <Dialog
+      open={!!selectedCardId}
+      onOpenChange={(open) => { if (!open) setSelectedCard(null) }}
+    >
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700">
+        {card && (
+          <>
+            <DialogHeader className="pb-0">
+              {editingTitle ? (
+                <Input
+                  ref={titleInputRef}
+                  value={titleValue}
+                  onChange={(e) => setTitleValue(e.target.value)}
+                  onBlur={handleTitleSave}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleTitleSave()
+                    if (e.key === 'Escape') setEditingTitle(false)
+                  }}
+                  className="text-xl font-bold h-auto py-1 border-indigo-500 focus-visible:ring-indigo-500"
+                />
+              ) : (
+                <DialogTitle
+                  className="text-xl font-bold text-gray-900 dark:text-white cursor-pointer hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors text-left"
+                  onClick={() => setEditingTitle(true)}
+                  title="Clique para editar"
+                >
+                  {card.title}
+                </DialogTitle>
+              )}
+            </DialogHeader>
+
+            <div className="space-y-5 pt-2">
+              {/* Description */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  Descrição
+                </label>
+                <Textarea
+                  value={card.description}
+                  onChange={(e) => updateCard(card.id, { description: e.target.value })}
+                  placeholder="Adicionar uma descrição..."
+                  rows={3}
+                  className="resize-none bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-sm text-gray-800 dark:text-gray-200"
+                />
+              </div>
+
+              {/* Priority */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  Prioridade
+                </label>
+                <div className="flex gap-2">
+                  {PRIORITIES.map((p) => (
+                    <Button
+                      key={p}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => updateCard(card.id, { priority: p })}
+                      className={cn(
+                        'text-xs',
+                        card.priority === p
+                          ? cn(getPriorityColor(p), 'ring-1 ring-current border-current')
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-700'
+                      )}
+                    >
+                      {getPriorityLabel(p)}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Due date */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar size={12} />
+                    Data de Vencimento
+                  </span>
+                </label>
+                <Input
+                  type="date"
+                  value={card.dueDate ?? ''}
+                  onChange={(e) => updateCard(card.id, { dueDate: e.target.value || null })}
+                  className="w-auto bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-sm dark:[color-scheme:dark]"
+                />
+              </div>
+
+              {/* Assignee */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  Responsável
+                </label>
+                <div className="flex gap-2 flex-wrap">
+                  {members.map((member) => (
+                    <Button
+                      key={member.id}
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        updateCard(card.id, {
+                          assigneeId: card.assigneeId === member.id ? null : member.id,
+                        })
+                      }
+                      className={cn(
+                        'gap-2 text-sm',
+                        card.assigneeId === member.id
+                          ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300'
+                          : 'border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400'
+                      )}
+                    >
+                      <div
+                        className={`w-5 h-5 rounded-full ${member.color} flex items-center justify-center text-xs font-bold text-white`}
+                      >
+                        {member.initials}
+                      </div>
+                      {member.name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Checklist */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Checklist
+                  </label>
+                  {card.checklist.length > 0 && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{progress}%</span>
+                  )}
+                </div>
+
+                {card.checklist.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    <Progress value={progress} className="h-1.5" />
+                    <div className="space-y-2">
+                      {card.checklist.map((item) => (
+                        <div key={item.id} className="flex items-center gap-3">
+                          <Checkbox
+                            id={item.id}
+                            checked={item.done}
+                            onCheckedChange={() => toggleChecklistItem(card.id, item.id)}
+                            className="border-gray-400 dark:border-gray-600"
+                          />
+                          <label
+                            htmlFor={item.id}
+                            className={cn(
+                              'text-sm flex-1 cursor-pointer',
+                              item.done
+                                ? 'line-through text-gray-400 dark:text-gray-500'
+                                : 'text-gray-800 dark:text-gray-200'
+                            )}
+                          >
+                            {item.text}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Novo item..."
+                    value={newChecklistText}
+                    onChange={(e) => setNewChecklistText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddChecklist() }}
+                    className="text-sm bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    onClick={handleAddChecklist}
+                    className="shrink-0"
+                  >
+                    <Plus size={16} />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Delete */}
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={confirmDelete ? 'destructive' : 'ghost'}
+                    size="sm"
+                    onClick={handleDelete}
+                    className={cn(
+                      'gap-2',
+                      !confirmDelete && 'text-red-500 hover:text-red-600 hover:bg-red-500/10'
+                    )}
+                  >
+                    <Trash2 size={16} />
+                    {confirmDelete ? 'Confirmar exclusão' : 'Excluir card'}
+                  </Button>
+                  {confirmDelete && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirmDelete(false)}
+                      className="text-gray-500 dark:text-gray-400"
+                    >
+                      Cancelar
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}

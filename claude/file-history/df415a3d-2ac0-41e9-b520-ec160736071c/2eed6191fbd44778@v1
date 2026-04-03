@@ -1,0 +1,187 @@
+import { create } from 'zustand'
+import { Board, Card, Member, Priority } from '@/types'
+import { INITIAL_BOARDS, INITIAL_CARDS, MEMBERS } from '@/data/mockData'
+import { generateId } from '@/lib/utils'
+
+interface FlowStore {
+  boards: Board[]
+  cards: Record<string, Card>
+  members: Member[]
+  activeBoardId: string
+  selectedCardId: string | null
+  searchQuery: string
+  filterPriority: Priority | null
+  filterMemberId: string | null
+  darkMode: boolean
+
+  addBoard: (name: string) => void
+  addCard: (columnId: string, boardId: string, title: string) => void
+  updateCard: (id: string, updates: Partial<Card>) => void
+  deleteCard: (id: string) => void
+  moveCard: (cardId: string, fromColId: string, toColId: string, toIndex: number) => void
+  addChecklistItem: (cardId: string, text: string) => void
+  toggleChecklistItem: (cardId: string, itemId: string) => void
+  setActiveBoard: (id: string) => void
+  setSelectedCard: (id: string | null) => void
+  setSearchQuery: (q: string) => void
+  setFilterPriority: (p: Priority | null) => void
+  setFilterMember: (id: string | null) => void
+  toggleDarkMode: () => void
+  getInitialState: () => typeof initialState
+}
+
+const initialState = {
+  boards: INITIAL_BOARDS,
+  cards: INITIAL_CARDS,
+  members: MEMBERS,
+  activeBoardId: 'b1',
+  selectedCardId: null as string | null,
+  searchQuery: '',
+  filterPriority: null as Priority | null,
+  filterMemberId: null as string | null,
+  darkMode: true,
+}
+
+export const useFlowStore = create<FlowStore>((set, get) => ({
+  ...initialState,
+
+  getInitialState: () => initialState,
+
+  addBoard: (name) => {
+    const id = generateId()
+    const newBoard: Board = {
+      id,
+      name,
+      columns: [
+        { id: `${id}-c1`, title: 'A Fazer', cardIds: [] },
+        { id: `${id}-c2`, title: 'Em Progresso', cardIds: [] },
+        { id: `${id}-c3`, title: 'Em Revisão', cardIds: [] },
+        { id: `${id}-c4`, title: 'Concluído', cardIds: [] },
+      ],
+    }
+    set((state) => ({
+      boards: [...state.boards, newBoard],
+      activeBoardId: id,
+    }))
+  },
+
+  addCard: (columnId, boardId, title) => {
+    const cardId = generateId()
+    const newCard: Card = {
+      id: cardId,
+      boardId,
+      columnId,
+      title,
+      description: '',
+      priority: 'media',
+      assigneeId: null,
+      dueDate: null,
+      checklist: [],
+    }
+    set((state) => ({
+      cards: { ...state.cards, [cardId]: newCard },
+      boards: state.boards.map((b) =>
+        b.id === boardId
+          ? {
+              ...b,
+              columns: b.columns.map((c) =>
+                c.id === columnId ? { ...c, cardIds: [...c.cardIds, cardId] } : c
+              ),
+            }
+          : b
+      ),
+    }))
+  },
+
+  updateCard: (id, updates) => {
+    set((state) => ({
+      cards: { ...state.cards, [id]: { ...state.cards[id], ...updates } },
+    }))
+  },
+
+  deleteCard: (id) => {
+    const card = get().cards[id]
+    set((state) => {
+      const { [id]: _removed, ...remainingCards } = state.cards
+      return {
+        cards: remainingCards,
+        selectedCardId: state.selectedCardId === id ? null : state.selectedCardId,
+        boards: state.boards.map((b) =>
+          b.id === card.boardId
+            ? {
+                ...b,
+                columns: b.columns.map((c) =>
+                  c.id === card.columnId
+                    ? { ...c, cardIds: c.cardIds.filter((cid) => cid !== id) }
+                    : c
+                ),
+              }
+            : b
+        ),
+      }
+    })
+  },
+
+  moveCard: (cardId, fromColId, toColId, toIndex) => {
+    const card = get().cards[cardId]
+    set((state) => ({
+      cards: { ...state.cards, [cardId]: { ...card, columnId: toColId } },
+      boards: state.boards.map((b) =>
+        b.id === card.boardId
+          ? {
+              ...b,
+              columns: b.columns.map((c) => {
+                if (c.id === fromColId && fromColId !== toColId) {
+                  return { ...c, cardIds: c.cardIds.filter((id) => id !== cardId) }
+                }
+                if (c.id === toColId) {
+                  const filtered =
+                    fromColId === toColId
+                      ? c.cardIds.filter((id) => id !== cardId)
+                      : c.cardIds
+                  const newIds = [...filtered]
+                  newIds.splice(toIndex, 0, cardId)
+                  return { ...c, cardIds: newIds }
+                }
+                return c
+              }),
+            }
+          : b
+      ),
+    }))
+  },
+
+  addChecklistItem: (cardId, text) => {
+    const item = { id: generateId(), text, done: false }
+    set((state) => ({
+      cards: {
+        ...state.cards,
+        [cardId]: {
+          ...state.cards[cardId],
+          checklist: [...state.cards[cardId].checklist, item],
+        },
+      },
+    }))
+  },
+
+  toggleChecklistItem: (cardId, itemId) => {
+    set((state) => ({
+      cards: {
+        ...state.cards,
+        [cardId]: {
+          ...state.cards[cardId],
+          checklist: state.cards[cardId].checklist.map((item) =>
+            item.id === itemId ? { ...item, done: !item.done } : item
+          ),
+        },
+      },
+    }))
+  },
+
+  setActiveBoard: (id) => set({ activeBoardId: id }),
+  setSelectedCard: (id) => set({ selectedCardId: id }),
+  setSearchQuery: (q) => set({ searchQuery: q }),
+  setFilterPriority: (p) => set({ filterPriority: p }),
+  setFilterMember: (id) => set({ filterMemberId: id }),
+  toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
+}))

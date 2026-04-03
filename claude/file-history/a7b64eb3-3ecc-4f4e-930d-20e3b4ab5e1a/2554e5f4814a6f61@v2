@@ -1,0 +1,2161 @@
+# FlowBoard Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build a full Trello-like Kanban board app (FlowBoard) with drag-and-drop, modals, dark mode, and multi-board navigation.
+
+**Architecture:** Next.js 14 App Router with a single-page layout (sidebar + header + board). Zustand stores all state in a flat card map with column ID arrays; @hello-pangea/dnd handles drag-and-drop; Framer Motion handles modal/card animations.
+
+**Tech Stack:** Next.js 14, TypeScript, Tailwind CSS v3, Zustand, @hello-pangea/dnd, Framer Motion, Lucide React
+
+---
+
+## File Map
+
+| File | Responsibility |
+|---|---|
+| `types/index.ts` | All shared TypeScript types |
+| `data/mockData.ts` | 3 boards, 15+ cards, 4 members |
+| `store/useFlowStore.ts` | Zustand store — all state and actions |
+| `lib/utils.ts` | Priority colors, date formatting helpers |
+| `components/layout/Sidebar.tsx` | Board list, members, new board button |
+| `components/layout/Header.tsx` | Board title, search, filters, dark mode toggle |
+| `components/board/KanbanBoard.tsx` | DragDropContext + column layout |
+| `components/board/Column.tsx` | Droppable column with header and add-card button |
+| `components/board/Card.tsx` | Draggable card with all preview fields |
+| `components/modals/CardModal.tsx` | Full card editor modal |
+| `components/modals/NewCardModal.tsx` | Quick add card modal |
+| `components/modals/NewBoardModal.tsx` | New board name input modal |
+| `app/layout.tsx` | Root layout with providers |
+| `app/page.tsx` | Main page — assembles Sidebar + Header + KanbanBoard |
+
+---
+
+## Task 1: Project Scaffold
+
+**Files:**
+- Create: `package.json`, `tsconfig.json`, `tailwind.config.ts`, `postcss.config.js`, `next.config.js`
+
+- [ ] **Step 1: Scaffold Next.js project**
+
+```bash
+cd /Users/carlosroberto/Projetos/devops/matheus/flowboard-cc
+npx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias "@/*"
+```
+
+When prompted, accept all defaults.
+
+- [ ] **Step 2: Install dependencies**
+
+```bash
+npm install zustand @hello-pangea/dnd framer-motion lucide-react
+npm install -D @types/node
+```
+
+- [ ] **Step 3: Verify dev server starts**
+
+```bash
+npm run dev
+```
+
+Expected: Server running at http://localhost:3000 with no errors.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git init
+git add .
+git commit -m "chore: scaffold Next.js project with dependencies"
+```
+
+---
+
+## Task 2: Types
+
+**Files:**
+- Create: `types/index.ts`
+
+- [ ] **Step 1: Write types**
+
+Create `types/index.ts`:
+
+```typescript
+export type Priority = 'alta' | 'media' | 'baixa'
+
+export interface Member {
+  id: string
+  name: string
+  role: string
+  initials: string
+  color: string
+  isOnline: boolean
+}
+
+export interface ChecklistItem {
+  id: string
+  text: string
+  done: boolean
+}
+
+export interface Card {
+  id: string
+  title: string
+  description: string
+  priority: Priority
+  assigneeId: string | null
+  dueDate: string | null
+  checklist: ChecklistItem[]
+  columnId: string
+  boardId: string
+}
+
+export interface Column {
+  id: string
+  title: string
+  cardIds: string[]
+}
+
+export interface Board {
+  id: string
+  name: string
+  columns: Column[]
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add types/index.ts
+git commit -m "feat: add TypeScript types"
+```
+
+---
+
+## Task 3: Utility Helpers
+
+**Files:**
+- Create: `lib/utils.ts`
+- Create: `lib/utils.test.ts`
+
+- [ ] **Step 1: Install test dependencies**
+
+```bash
+npm install -D jest @testing-library/jest-dom ts-jest
+```
+
+Create `jest.config.js`:
+
+```javascript
+/** @type {import('jest').Config} */
+const config = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/$1',
+  },
+}
+module.exports = config
+```
+
+Add to `package.json` scripts:
+```json
+"test": "jest"
+```
+
+- [ ] **Step 2: Write failing tests**
+
+Create `lib/utils.test.ts`:
+
+```typescript
+import { getPriorityColor, getPriorityLabel, isOverdue, formatDate } from './utils'
+
+describe('getPriorityColor', () => {
+  it('returns red classes for alta', () => {
+    expect(getPriorityColor('alta')).toBe('bg-red-500/20 text-red-400 border-red-500/30')
+  })
+  it('returns yellow classes for media', () => {
+    expect(getPriorityColor('media')).toBe('bg-yellow-500/20 text-yellow-400 border-yellow-500/30')
+  })
+  it('returns green classes for baixa', () => {
+    expect(getPriorityColor('baixa')).toBe('bg-green-500/20 text-green-400 border-green-500/30')
+  })
+})
+
+describe('getPriorityLabel', () => {
+  it('returns Portuguese labels', () => {
+    expect(getPriorityLabel('alta')).toBe('Alta')
+    expect(getPriorityLabel('media')).toBe('Média')
+    expect(getPriorityLabel('baixa')).toBe('Baixa')
+  })
+})
+
+describe('isOverdue', () => {
+  it('returns true for past dates', () => {
+    expect(isOverdue('2020-01-01')).toBe(true)
+  })
+  it('returns false for future dates', () => {
+    expect(isOverdue('2099-01-01')).toBe(false)
+  })
+  it('returns false for null', () => {
+    expect(isOverdue(null)).toBe(false)
+  })
+})
+
+describe('formatDate', () => {
+  it('formats date in pt-BR short format', () => {
+    expect(formatDate('2026-04-02')).toBe('02/04/26')
+  })
+  it('returns empty string for null', () => {
+    expect(formatDate(null)).toBe('')
+  })
+})
+```
+
+- [ ] **Step 3: Run tests to verify they fail**
+
+```bash
+npx jest lib/utils.test.ts
+```
+
+Expected: FAIL — `Cannot find module './utils'`
+
+- [ ] **Step 4: Write implementation**
+
+Create `lib/utils.ts`:
+
+```typescript
+import { Priority } from '@/types'
+
+export function getPriorityColor(priority: Priority): string {
+  const map: Record<Priority, string> = {
+    alta: 'bg-red-500/20 text-red-400 border-red-500/30',
+    media: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    baixa: 'bg-green-500/20 text-green-400 border-green-500/30',
+  }
+  return map[priority]
+}
+
+export function getPriorityLabel(priority: Priority): string {
+  const map: Record<Priority, string> = {
+    alta: 'Alta',
+    media: 'Média',
+    baixa: 'Baixa',
+  }
+  return map[priority]
+}
+
+export function isOverdue(dueDate: string | null): boolean {
+  if (!dueDate) return false
+  return new Date(dueDate) < new Date(new Date().toDateString())
+}
+
+export function formatDate(dueDate: string | null): string {
+  if (!dueDate) return ''
+  return new Date(dueDate).toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  })
+}
+
+export function getChecklistProgress(items: { done: boolean }[]): number {
+  if (items.length === 0) return 0
+  return Math.round((items.filter((i) => i.done).length / items.length) * 100)
+}
+
+export function generateId(): string {
+  return Math.random().toString(36).slice(2, 11)
+}
+```
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+```bash
+npx jest lib/utils.test.ts
+```
+
+Expected: PASS — 7 tests pass
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/utils.ts lib/utils.test.ts jest.config.js package.json
+git commit -m "feat: add utility helpers with tests"
+```
+
+---
+
+## Task 4: Mock Data
+
+**Files:**
+- Create: `data/mockData.ts`
+
+- [ ] **Step 1: Write mock data**
+
+Create `data/mockData.ts`:
+
+```typescript
+import { Board, Card, Member } from '@/types'
+
+export const MEMBERS: Member[] = [
+  { id: 'm1', name: 'Ana Silva', role: 'Product', initials: 'AS', color: 'bg-purple-500', isOnline: true },
+  { id: 'm2', name: 'Bruno Costa', role: 'Dev', initials: 'BC', color: 'bg-blue-500', isOnline: true },
+  { id: 'm3', name: 'Carla Mendes', role: 'Design', initials: 'CM', color: 'bg-pink-500', isOnline: false },
+  { id: 'm4', name: 'Diego Rocha', role: 'QA', initials: 'DR', color: 'bg-orange-500', isOnline: false },
+]
+
+export const INITIAL_BOARDS: Board[] = [
+  {
+    id: 'b1',
+    name: 'Projeto Website',
+    columns: [
+      { id: 'b1-c1', title: 'A Fazer', cardIds: ['card1', 'card2'] },
+      { id: 'b1-c2', title: 'Em Progresso', cardIds: ['card3', 'card4'] },
+      { id: 'b1-c3', title: 'Em Revisão', cardIds: ['card5'] },
+      { id: 'b1-c4', title: 'Concluído', cardIds: ['card6'] },
+    ],
+  },
+  {
+    id: 'b2',
+    name: 'App Mobile',
+    columns: [
+      { id: 'b2-c1', title: 'A Fazer', cardIds: ['card7', 'card8'] },
+      { id: 'b2-c2', title: 'Em Progresso', cardIds: ['card9', 'card10'] },
+      { id: 'b2-c3', title: 'Em Revisão', cardIds: ['card11'] },
+      { id: 'b2-c4', title: 'Concluído', cardIds: ['card12'] },
+    ],
+  },
+  {
+    id: 'b3',
+    name: 'Marketing',
+    columns: [
+      { id: 'b3-c1', title: 'A Fazer', cardIds: ['card13', 'card14'] },
+      { id: 'b3-c2', title: 'Em Progresso', cardIds: ['card15'] },
+      { id: 'b3-c3', title: 'Em Revisão', cardIds: [] },
+      { id: 'b3-c4', title: 'Concluído', cardIds: ['card16', 'card17'] },
+    ],
+  },
+]
+
+export const INITIAL_CARDS: Record<string, Card> = {
+  card1: {
+    id: 'card1', boardId: 'b1', columnId: 'b1-c1',
+    title: 'Redesign da página inicial',
+    description: 'Atualizar layout da home com novo design system e componentes responsivos.',
+    priority: 'alta', assigneeId: 'm3', dueDate: '2026-03-28',
+    checklist: [
+      { id: 'cl1', text: 'Criar wireframes', done: true },
+      { id: 'cl2', text: 'Aprovar com o cliente', done: false },
+      { id: 'cl3', text: 'Implementar em HTML/CSS', done: false },
+    ],
+  },
+  card2: {
+    id: 'card2', boardId: 'b1', columnId: 'b1-c1',
+    title: 'Integração com API de pagamentos',
+    description: 'Conectar com Stripe para processar pagamentos no checkout.',
+    priority: 'alta', assigneeId: 'm2', dueDate: '2026-04-10',
+    checklist: [],
+  },
+  card3: {
+    id: 'card3', boardId: 'b1', columnId: 'b1-c2',
+    title: 'Otimização de performance',
+    description: 'Reduzir tempo de carregamento abaixo de 2 segundos no LCP.',
+    priority: 'media', assigneeId: 'm2', dueDate: '2026-04-05',
+    checklist: [
+      { id: 'cl4', text: 'Auditoria com Lighthouse', done: true },
+      { id: 'cl5', text: 'Otimizar imagens', done: true },
+      { id: 'cl6', text: 'Lazy loading de componentes', done: false },
+    ],
+  },
+  card4: {
+    id: 'card4', boardId: 'b1', columnId: 'b1-c2',
+    title: 'Sistema de busca',
+    description: 'Implementar busca full-text com Algolia nos produtos do catálogo.',
+    priority: 'media', assigneeId: 'm1', dueDate: '2026-04-15',
+    checklist: [],
+  },
+  card5: {
+    id: 'card5', boardId: 'b1', columnId: 'b1-c3',
+    title: 'Testes de acessibilidade',
+    description: 'Garantir conformidade WCAG 2.1 AA em todas as páginas principais.',
+    priority: 'alta', assigneeId: 'm4', dueDate: '2026-03-30',
+    checklist: [
+      { id: 'cl7', text: 'Testar com screen reader', done: true },
+      { id: 'cl8', text: 'Verificar contraste de cores', done: true },
+      { id: 'cl9', text: 'Relatório de conformidade', done: false },
+    ],
+  },
+  card6: {
+    id: 'card6', boardId: 'b1', columnId: 'b1-c4',
+    title: 'Setup do ambiente de staging',
+    description: 'Configurar pipeline CI/CD e ambiente de homologação no Vercel.',
+    priority: 'baixa', assigneeId: 'm2', dueDate: '2026-03-15',
+    checklist: [
+      { id: 'cl10', text: 'Configurar GitHub Actions', done: true },
+      { id: 'cl11', text: 'Deploy no Vercel', done: true },
+    ],
+  },
+  card7: {
+    id: 'card7', boardId: 'b2', columnId: 'b2-c1',
+    title: 'Tela de onboarding',
+    description: 'Criar fluxo de onboarding para novos usuários com 4 etapas.',
+    priority: 'alta', assigneeId: 'm3', dueDate: '2026-04-20',
+    checklist: [],
+  },
+  card8: {
+    id: 'card8', boardId: 'b2', columnId: 'b2-c1',
+    title: 'Push notifications',
+    description: 'Implementar notificações push com Firebase Cloud Messaging.',
+    priority: 'media', assigneeId: 'm2', dueDate: '2026-04-25',
+    checklist: [
+      { id: 'cl12', text: 'Configurar FCM', done: false },
+      { id: 'cl13', text: 'Permissões iOS/Android', done: false },
+    ],
+  },
+  card9: {
+    id: 'card9', boardId: 'b2', columnId: 'b2-c2',
+    title: 'Autenticação biométrica',
+    description: 'Login com Face ID e digital no iOS e Android.',
+    priority: 'alta', assigneeId: 'm2', dueDate: '2026-04-08',
+    checklist: [
+      { id: 'cl14', text: 'Implementar no iOS', done: true },
+      { id: 'cl15', text: 'Implementar no Android', done: false },
+    ],
+  },
+  card10: {
+    id: 'card10', boardId: 'b2', columnId: 'b2-c2',
+    title: 'Modo offline',
+    description: 'Cache local com sincronização ao reconectar.',
+    priority: 'media', assigneeId: 'm1', dueDate: '2026-04-18',
+    checklist: [],
+  },
+  card11: {
+    id: 'card11', boardId: 'b2', columnId: 'b2-c3',
+    title: 'Animações de transição',
+    description: 'Adicionar animações suaves nas navegações entre telas.',
+    priority: 'baixa', assigneeId: 'm3', dueDate: '2026-04-02',
+    checklist: [
+      { id: 'cl16', text: 'Protótipo no Figma', done: true },
+      { id: 'cl17', text: 'Implementar com Reanimated', done: true },
+      { id: 'cl18', text: 'Testes em dispositivo real', done: false },
+    ],
+  },
+  card12: {
+    id: 'card12', boardId: 'b2', columnId: 'b2-c4',
+    title: 'Protótipo inicial',
+    description: 'Wireframes e protótipo navegável aprovado pelo cliente.',
+    priority: 'baixa', assigneeId: 'm3', dueDate: '2026-03-10',
+    checklist: [],
+  },
+  card13: {
+    id: 'card13', boardId: 'b3', columnId: 'b3-c1',
+    title: 'Campanha de lançamento',
+    description: 'Planejar campanha multi-canal para o lançamento do produto.',
+    priority: 'alta', assigneeId: 'm1', dueDate: '2026-04-30',
+    checklist: [
+      { id: 'cl19', text: 'Definir canais', done: false },
+      { id: 'cl20', text: 'Criar cronograma', done: false },
+      { id: 'cl21', text: 'Aprovar orçamento', done: false },
+    ],
+  },
+  card14: {
+    id: 'card14', boardId: 'b3', columnId: 'b3-c1',
+    title: 'Criação de conteúdo para redes sociais',
+    description: 'Produzir 20 peças para Instagram, LinkedIn e Twitter.',
+    priority: 'media', assigneeId: 'm3', dueDate: '2026-04-12',
+    checklist: [],
+  },
+  card15: {
+    id: 'card15', boardId: 'b3', columnId: 'b3-c2',
+    title: 'SEO e estratégia de conteúdo',
+    description: 'Pesquisa de palavras-chave e plano editorial para blog.',
+    priority: 'media', assigneeId: 'm1', dueDate: '2026-04-06',
+    checklist: [
+      { id: 'cl22', text: 'Auditoria SEO atual', done: true },
+      { id: 'cl23', text: 'Pesquisa de keywords', done: true },
+      { id: 'cl24', text: 'Plano editorial Q2', done: false },
+    ],
+  },
+  card16: {
+    id: 'card16', boardId: 'b3', columnId: 'b3-c4',
+    title: 'Identidade visual atualizada',
+    description: 'Novo manual de marca aprovado com logo, cores e tipografia.',
+    priority: 'alta', assigneeId: 'm3', dueDate: '2026-03-20',
+    checklist: [],
+  },
+  card17: {
+    id: 'card17', boardId: 'b3', columnId: 'b3-c4',
+    title: 'Análise de concorrentes',
+    description: 'Relatório completo de benchmarking com 5 concorrentes principais.',
+    priority: 'baixa', assigneeId: 'm1', dueDate: '2026-03-25',
+    checklist: [
+      { id: 'cl25', text: 'Coletar dados', done: true },
+      { id: 'cl26', text: 'Análise SWOT', done: true },
+      { id: 'cl27', text: 'Relatório final', done: true },
+    ],
+  },
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add data/mockData.ts
+git commit -m "feat: add mock data (3 boards, 17 cards, 4 members)"
+```
+
+---
+
+## Task 5: Zustand Store
+
+**Files:**
+- Create: `store/useFlowStore.ts`
+- Create: `store/useFlowStore.test.ts`
+
+- [ ] **Step 1: Write failing store tests**
+
+Create `store/useFlowStore.test.ts`:
+
+```typescript
+import { act, renderHook } from '@testing-library/react'
+import { useFlowStore } from './useFlowStore'
+
+// Reset store between tests
+beforeEach(() => {
+  useFlowStore.setState(useFlowStore.getInitialState())
+})
+
+describe('addCard', () => {
+  it('adds a card to the specified column', () => {
+    const { result } = renderHook(() => useFlowStore())
+    act(() => {
+      result.current.addCard('b1-c1', 'b1', 'Novo card')
+    })
+    const state = useFlowStore.getState()
+    const column = state.boards.find(b => b.id === 'b1')!.columns.find(c => c.id === 'b1-c1')!
+    expect(column.cardIds).toHaveLength(3) // 2 mock + 1 new
+    const newCard = Object.values(state.cards).find(c => c.title === 'Novo card')
+    expect(newCard).toBeDefined()
+    expect(newCard!.columnId).toBe('b1-c1')
+  })
+})
+
+describe('deleteCard', () => {
+  it('removes card from cards map and from column', () => {
+    const { result } = renderHook(() => useFlowStore())
+    act(() => {
+      result.current.deleteCard('card1')
+    })
+    const state = useFlowStore.getState()
+    expect(state.cards['card1']).toBeUndefined()
+    const column = state.boards.find(b => b.id === 'b1')!.columns.find(c => c.id === 'b1-c1')!
+    expect(column.cardIds).not.toContain('card1')
+  })
+})
+
+describe('moveCard', () => {
+  it('moves a card from one column to another', () => {
+    const { result } = renderHook(() => useFlowStore())
+    act(() => {
+      result.current.moveCard('card1', 'b1-c1', 'b1-c2', 0)
+    })
+    const state = useFlowStore.getState()
+    const fromCol = state.boards.find(b => b.id === 'b1')!.columns.find(c => c.id === 'b1-c1')!
+    const toCol = state.boards.find(b => b.id === 'b1')!.columns.find(c => c.id === 'b1-c2')!
+    expect(fromCol.cardIds).not.toContain('card1')
+    expect(toCol.cardIds).toContain('card1')
+    expect(state.cards['card1'].columnId).toBe('b1-c2')
+  })
+})
+
+describe('updateCard', () => {
+  it('updates card fields', () => {
+    const { result } = renderHook(() => useFlowStore())
+    act(() => {
+      result.current.updateCard('card1', { title: 'Título atualizado', priority: 'baixa' })
+    })
+    const card = useFlowStore.getState().cards['card1']
+    expect(card.title).toBe('Título atualizado')
+    expect(card.priority).toBe('baixa')
+  })
+})
+
+describe('toggleChecklistItem', () => {
+  it('toggles a checklist item done state', () => {
+    const { result } = renderHook(() => useFlowStore())
+    const initialDone = useFlowStore.getState().cards['card1'].checklist[0].done
+    act(() => {
+      result.current.toggleChecklistItem('card1', 'cl1')
+    })
+    const item = useFlowStore.getState().cards['card1'].checklist[0]
+    expect(item.done).toBe(!initialDone)
+  })
+})
+```
+
+Install `@testing-library/react` for hook testing:
+```bash
+npm install -D @testing-library/react @testing-library/jest-dom jest-environment-jsdom
+```
+
+Update `jest.config.js`:
+```javascript
+/** @type {import('jest').Config} */
+const config = {
+  preset: 'ts-jest',
+  testEnvironment: 'jsdom',
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/$1',
+  },
+  setupFilesAfterFramework: ['@testing-library/jest-dom'],
+}
+module.exports = config
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+```bash
+npx jest store/useFlowStore.test.ts
+```
+
+Expected: FAIL — `Cannot find module './useFlowStore'`
+
+- [ ] **Step 3: Write the store implementation**
+
+Create `store/useFlowStore.ts`:
+
+```typescript
+import { create } from 'zustand'
+import { Board, Card, Member, Priority } from '@/types'
+import { INITIAL_BOARDS, INITIAL_CARDS, MEMBERS } from '@/data/mockData'
+import { generateId } from '@/lib/utils'
+
+interface FlowStore {
+  boards: Board[]
+  cards: Record<string, Card>
+  members: Member[]
+  activeBoardId: string
+  selectedCardId: string | null
+  searchQuery: string
+  filterPriority: Priority | null
+  filterMemberId: string | null
+  darkMode: boolean
+
+  addBoard: (name: string) => void
+  addCard: (columnId: string, boardId: string, title: string) => void
+  updateCard: (id: string, updates: Partial<Card>) => void
+  deleteCard: (id: string) => void
+  moveCard: (cardId: string, fromColId: string, toColId: string, toIndex: number) => void
+  addChecklistItem: (cardId: string, text: string) => void
+  toggleChecklistItem: (cardId: string, itemId: string) => void
+  setActiveBoard: (id: string) => void
+  setSelectedCard: (id: string | null) => void
+  setSearchQuery: (q: string) => void
+  setFilterPriority: (p: Priority | null) => void
+  setFilterMember: (id: string | null) => void
+  toggleDarkMode: () => void
+  getInitialState: () => Partial<FlowStore>
+}
+
+const initialState = {
+  boards: INITIAL_BOARDS,
+  cards: INITIAL_CARDS,
+  members: MEMBERS,
+  activeBoardId: 'b1',
+  selectedCardId: null,
+  searchQuery: '',
+  filterPriority: null as Priority | null,
+  filterMemberId: null as string | null,
+  darkMode: true,
+}
+
+export const useFlowStore = create<FlowStore>((set, get) => ({
+  ...initialState,
+
+  getInitialState: () => initialState,
+
+  addBoard: (name) => {
+    const id = generateId()
+    const newBoard: Board = {
+      id,
+      name,
+      columns: [
+        { id: `${id}-c1`, title: 'A Fazer', cardIds: [] },
+        { id: `${id}-c2`, title: 'Em Progresso', cardIds: [] },
+        { id: `${id}-c3`, title: 'Em Revisão', cardIds: [] },
+        { id: `${id}-c4`, title: 'Concluído', cardIds: [] },
+      ],
+    }
+    set((state) => ({
+      boards: [...state.boards, newBoard],
+      activeBoardId: id,
+    }))
+  },
+
+  addCard: (columnId, boardId, title) => {
+    const cardId = generateId()
+    const newCard: Card = {
+      id: cardId,
+      boardId,
+      columnId,
+      title,
+      description: '',
+      priority: 'media',
+      assigneeId: null,
+      dueDate: null,
+      checklist: [],
+    }
+    set((state) => ({
+      cards: { ...state.cards, [cardId]: newCard },
+      boards: state.boards.map((b) =>
+        b.id === boardId
+          ? {
+              ...b,
+              columns: b.columns.map((c) =>
+                c.id === columnId ? { ...c, cardIds: [...c.cardIds, cardId] } : c
+              ),
+            }
+          : b
+      ),
+    }))
+  },
+
+  updateCard: (id, updates) => {
+    set((state) => ({
+      cards: { ...state.cards, [id]: { ...state.cards[id], ...updates } },
+    }))
+  },
+
+  deleteCard: (id) => {
+    const card = get().cards[id]
+    set((state) => {
+      const { [id]: _removed, ...remainingCards } = state.cards
+      return {
+        cards: remainingCards,
+        selectedCardId: state.selectedCardId === id ? null : state.selectedCardId,
+        boards: state.boards.map((b) =>
+          b.id === card.boardId
+            ? {
+                ...b,
+                columns: b.columns.map((c) =>
+                  c.id === card.columnId
+                    ? { ...c, cardIds: c.cardIds.filter((cid) => cid !== id) }
+                    : c
+                ),
+              }
+            : b
+        ),
+      }
+    })
+  },
+
+  moveCard: (cardId, fromColId, toColId, toIndex) => {
+    const card = get().cards[cardId]
+    set((state) => ({
+      cards: { ...state.cards, [cardId]: { ...card, columnId: toColId } },
+      boards: state.boards.map((b) =>
+        b.id === card.boardId
+          ? {
+              ...b,
+              columns: b.columns.map((c) => {
+                if (c.id === fromColId && fromColId !== toColId) {
+                  return { ...c, cardIds: c.cardIds.filter((id) => id !== cardId) }
+                }
+                if (c.id === toColId) {
+                  const filtered =
+                    fromColId === toColId
+                      ? c.cardIds.filter((id) => id !== cardId)
+                      : c.cardIds
+                  const newIds = [...filtered]
+                  newIds.splice(toIndex, 0, cardId)
+                  return { ...c, cardIds: newIds }
+                }
+                return c
+              }),
+            }
+          : b
+      ),
+    }))
+  },
+
+  addChecklistItem: (cardId, text) => {
+    const item = { id: generateId(), text, done: false }
+    set((state) => ({
+      cards: {
+        ...state.cards,
+        [cardId]: {
+          ...state.cards[cardId],
+          checklist: [...state.cards[cardId].checklist, item],
+        },
+      },
+    }))
+  },
+
+  toggleChecklistItem: (cardId, itemId) => {
+    set((state) => ({
+      cards: {
+        ...state.cards,
+        [cardId]: {
+          ...state.cards[cardId],
+          checklist: state.cards[cardId].checklist.map((item) =>
+            item.id === itemId ? { ...item, done: !item.done } : item
+          ),
+        },
+      },
+    }))
+  },
+
+  setActiveBoard: (id) => set({ activeBoardId: id }),
+  setSelectedCard: (id) => set({ selectedCardId: id }),
+  setSearchQuery: (q) => set({ searchQuery: q }),
+  setFilterPriority: (p) => set({ filterPriority: p }),
+  setFilterMember: (id) => set({ filterMemberId: id }),
+  toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
+}))
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+npx jest store/useFlowStore.test.ts
+```
+
+Expected: PASS — 5 tests pass
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add store/useFlowStore.ts store/useFlowStore.test.ts jest.config.js package.json
+git commit -m "feat: add Zustand store with full actions and tests"
+```
+
+---
+
+## Task 6: Global Layout & Dark Mode
+
+**Files:**
+- Modify: `app/layout.tsx`
+- Modify: `app/globals.css`
+
+- [ ] **Step 1: Update globals.css**
+
+Replace contents of `app/globals.css`:
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+```
+
+- [ ] **Step 2: Update app/layout.tsx**
+
+```typescript
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import './globals.css'
+
+const inter = Inter({ subsets: ['latin'] })
+
+export const metadata: Metadata = {
+  title: 'FlowBoard',
+  description: 'Gerenciamento de projetos estilo Trello',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="pt-BR">
+      <body className={`${inter.className} bg-gray-950 text-gray-100`}>{children}</body>
+    </html>
+  )
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add app/layout.tsx app/globals.css
+git commit -m "feat: configure root layout and global styles"
+```
+
+---
+
+## Task 7: Sidebar Component
+
+**Files:**
+- Create: `components/layout/Sidebar.tsx`
+
+- [ ] **Step 1: Create Sidebar**
+
+Create `components/layout/Sidebar.tsx`:
+
+```typescript
+'use client'
+
+import { useState } from 'react'
+import { LayoutDashboard, Plus, Wifi, WifiOff } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { useFlowStore } from '@/store/useFlowStore'
+import NewBoardModal from '@/components/modals/NewBoardModal'
+
+export default function Sidebar() {
+  const { boards, members, activeBoardId, setActiveBoard } = useFlowStore()
+  const [showNewBoard, setShowNewBoard] = useState(false)
+
+  return (
+    <>
+      <aside className="w-64 min-h-screen bg-gray-900 border-r border-gray-800 flex flex-col">
+        {/* Logo */}
+        <div className="p-5 border-b border-gray-800">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center">
+              <LayoutDashboard size={16} className="text-white" />
+            </div>
+            <span className="text-lg font-bold text-white">FlowBoard</span>
+          </div>
+        </div>
+
+        {/* Boards */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Quadros
+            </span>
+            <button
+              onClick={() => setShowNewBoard(true)}
+              className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+              title="Novo quadro"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+
+          <nav className="space-y-1">
+            {boards.map((board) => (
+              <motion.button
+                key={board.id}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setActiveBoard(board.id)}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
+                  activeBoardId === board.id
+                    ? 'bg-indigo-500/20 text-indigo-300 font-medium'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`}
+              >
+                <div
+                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    activeBoardId === board.id ? 'bg-indigo-400' : 'bg-gray-600'
+                  }`}
+                />
+                {board.name}
+              </motion.button>
+            ))}
+          </nav>
+
+          {/* Members */}
+          <div className="mt-6">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Time
+            </span>
+            <div className="mt-3 space-y-2">
+              {members.map((member) => (
+                <div key={member.id} className="flex items-center gap-3 px-1">
+                  <div className="relative">
+                    <div
+                      className={`w-8 h-8 rounded-full ${member.color} flex items-center justify-center text-xs font-bold text-white`}
+                    >
+                      {member.initials}
+                    </div>
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-gray-900 ${
+                        member.isOnline ? 'bg-green-400' : 'bg-gray-500'
+                      }`}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-200 truncate">{member.name}</p>
+                    <p className="text-xs text-gray-500">{member.role}</p>
+                  </div>
+                  {member.isOnline ? (
+                    <Wifi size={12} className="text-green-400 flex-shrink-0" />
+                  ) : (
+                    <WifiOff size={12} className="text-gray-600 flex-shrink-0" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {showNewBoard && <NewBoardModal onClose={() => setShowNewBoard(false)} />}
+    </>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add components/layout/Sidebar.tsx
+git commit -m "feat: add Sidebar component with board list and members"
+```
+
+---
+
+## Task 8: Header Component
+
+**Files:**
+- Create: `components/layout/Header.tsx`
+
+- [ ] **Step 1: Create Header**
+
+Create `components/layout/Header.tsx`:
+
+```typescript
+'use client'
+
+import { Search, Sun, Moon, ChevronDown, X } from 'lucide-react'
+import { useFlowStore } from '@/store/useFlowStore'
+import { Priority } from '@/types'
+
+const PRIORITY_OPTIONS: { value: Priority | null; label: string }[] = [
+  { value: null, label: 'Todas as prioridades' },
+  { value: 'alta', label: 'Alta' },
+  { value: 'media', label: 'Média' },
+  { value: 'baixa', label: 'Baixa' },
+]
+
+export default function Header() {
+  const {
+    boards, activeBoardId, members,
+    searchQuery, filterPriority, filterMemberId,
+    darkMode,
+    setSearchQuery, setFilterPriority, setFilterMember, toggleDarkMode,
+  } = useFlowStore()
+
+  const activeBoard = boards.find((b) => b.id === activeBoardId)
+
+  return (
+    <header className="h-16 bg-gray-900 border-b border-gray-800 flex items-center gap-4 px-6 flex-shrink-0">
+      {/* Board name */}
+      <h1 className="text-lg font-bold text-white min-w-0 truncate mr-4">
+        {activeBoard?.name}
+      </h1>
+
+      {/* Search */}
+      <div className="relative flex-1 max-w-xs">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Buscar cards..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full pl-9 pr-9 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {/* Priority filter */}
+      <div className="relative">
+        <select
+          value={filterPriority ?? ''}
+          onChange={(e) => setFilterPriority((e.target.value as Priority) || null)}
+          className="appearance-none pl-3 pr-8 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+        >
+          {PRIORITY_OPTIONS.map((opt) => (
+            <option key={String(opt.value)} value={opt.value ?? ''}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+      </div>
+
+      {/* Member filter */}
+      <div className="relative">
+        <select
+          value={filterMemberId ?? ''}
+          onChange={(e) => setFilterMember(e.target.value || null)}
+          className="appearance-none pl-3 pr-8 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+        >
+          <option value="">Todos os membros</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+      </div>
+
+      {/* Dark mode toggle */}
+      <button
+        onClick={toggleDarkMode}
+        className="ml-auto p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        title={darkMode ? 'Modo claro' : 'Modo escuro'}
+      >
+        {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
+    </header>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add components/layout/Header.tsx
+git commit -m "feat: add Header with search, filters, and dark mode toggle"
+```
+
+---
+
+## Task 9: Card Component
+
+**Files:**
+- Create: `components/board/Card.tsx`
+
+- [ ] **Step 1: Create Card**
+
+Create `components/board/Card.tsx`:
+
+```typescript
+'use client'
+
+import { Draggable } from '@hello-pangea/dnd'
+import { motion } from 'framer-motion'
+import { Calendar, CheckSquare } from 'lucide-react'
+import { Card as CardType } from '@/types'
+import { useFlowStore } from '@/store/useFlowStore'
+import { getPriorityColor, getPriorityLabel, isOverdue, formatDate, getChecklistProgress } from '@/lib/utils'
+
+interface CardProps {
+  card: CardType
+  index: number
+}
+
+export default function Card({ card, index }: CardProps) {
+  const { members, setSelectedCard } = useFlowStore()
+  const assignee = members.find((m) => m.id === card.assigneeId)
+  const progress = getChecklistProgress(card.checklist)
+  const overdue = isOverdue(card.dueDate)
+
+  return (
+    <Draggable draggableId={card.id} index={index}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+          style={provided.draggableProps.style}
+        >
+          <motion.div
+            layout
+            onClick={() => setSelectedCard(card.id)}
+            className={`
+              bg-gray-800 border border-gray-700 rounded-xl p-3 cursor-pointer
+              hover:border-gray-600 hover:shadow-lg hover:shadow-black/20
+              transition-all duration-150
+              ${snapshot.isDragging ? 'shadow-2xl shadow-black/40 rotate-1 border-indigo-500/50' : ''}
+            `}
+          >
+            {/* Priority badge */}
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border ${getPriorityColor(card.priority)}`}
+              >
+                {getPriorityLabel(card.priority)}
+              </span>
+              {assignee && (
+                <div
+                  className={`w-6 h-6 rounded-full ${assignee.color} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}
+                  title={assignee.name}
+                >
+                  {assignee.initials}
+                </div>
+              )}
+            </div>
+
+            {/* Title */}
+            <h3 className="text-sm font-medium text-gray-100 mb-1 leading-snug">{card.title}</h3>
+
+            {/* Description */}
+            {card.description && (
+              <p className="text-xs text-gray-400 mb-2 line-clamp-1">{card.description}</p>
+            )}
+
+            {/* Checklist progress */}
+            {card.checklist.length > 0 && (
+              <div className="mb-2">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <CheckSquare size={11} className="text-gray-400" />
+                  <span className="text-xs text-gray-400">
+                    {card.checklist.filter((i) => i.done).length}/{card.checklist.length}
+                  </span>
+                </div>
+                <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-500 rounded-full transition-all"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Due date */}
+            {card.dueDate && (
+              <div className={`flex items-center gap-1 text-xs ${overdue ? 'text-red-400' : 'text-gray-400'}`}>
+                <Calendar size={11} />
+                <span>{formatDate(card.dueDate)}</span>
+                {overdue && <span className="text-red-400 font-medium">• Atrasado</span>}
+              </div>
+            )}
+          </motion.div>
+        </div>
+      )}
+    </Draggable>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add components/board/Card.tsx
+git commit -m "feat: add draggable Card component with priority, checklist progress, and due date"
+```
+
+---
+
+## Task 10: Column Component
+
+**Files:**
+- Create: `components/board/Column.tsx`
+
+- [ ] **Step 1: Create Column**
+
+Create `components/board/Column.tsx`:
+
+```typescript
+'use client'
+
+import { useState } from 'react'
+import { Droppable } from '@hello-pangea/dnd'
+import { Plus } from 'lucide-react'
+import { Column as ColumnType, Card as CardType } from '@/types'
+import CardComponent from './Card'
+
+interface ColumnProps {
+  column: ColumnType
+  cards: CardType[]
+  boardId: string
+}
+
+const COLUMN_HEADER_COLORS: Record<string, string> = {
+  'A Fazer': 'bg-gray-500/20 text-gray-300',
+  'Em Progresso': 'bg-blue-500/20 text-blue-300',
+  'Em Revisão': 'bg-yellow-500/20 text-yellow-300',
+  'Concluído': 'bg-green-500/20 text-green-300',
+}
+
+export default function Column({ column, cards, boardId }: ColumnProps) {
+  const [isAddingCard, setIsAddingCard] = useState(false)
+  const [newCardTitle, setNewCardTitle] = useState('')
+  const { addCard } = require('@/store/useFlowStore').useFlowStore.getState()
+
+  const headerColor = COLUMN_HEADER_COLORS[column.title] ?? 'bg-gray-500/20 text-gray-300'
+
+  const handleAddCard = () => {
+    if (!newCardTitle.trim()) return
+    addCard(column.id, boardId, newCardTitle.trim())
+    setNewCardTitle('')
+    setIsAddingCard(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleAddCard()
+    if (e.key === 'Escape') {
+      setIsAddingCard(false)
+      setNewCardTitle('')
+    }
+  }
+
+  return (
+    <div className="flex flex-col w-72 min-w-[288px] bg-gray-900/50 rounded-2xl border border-gray-800">
+      {/* Column header */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-gray-200">{column.title}</h2>
+          <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold ${headerColor}`}>
+            {cards.length}
+          </span>
+        </div>
+        <button
+          onClick={() => setIsAddingCard(true)}
+          className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+          title="Adicionar card"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+
+      {/* Cards */}
+      <Droppable droppableId={column.id}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={`flex-1 min-h-[80px] px-3 pb-3 space-y-2 transition-colors ${
+              snapshot.isDraggingOver ? 'bg-indigo-500/5 rounded-b-2xl' : ''
+            }`}
+          >
+            {cards.map((card, index) => (
+              <CardComponent key={card.id} card={card} index={index} />
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+
+      {/* Add card input */}
+      {isAddingCard ? (
+        <div className="px-3 pb-3">
+          <input
+            autoFocus
+            type="text"
+            placeholder="Título do card..."
+            value={newCardTitle}
+            onChange={(e) => setNewCardTitle(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => {
+              if (!newCardTitle.trim()) {
+                setIsAddingCard(false)
+              }
+            }}
+            className="w-full px-3 py-2 bg-gray-800 border border-indigo-500/50 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={handleAddCard}
+              className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium rounded-lg transition-colors"
+            >
+              Adicionar
+            </button>
+            <button
+              onClick={() => { setIsAddingCard(false); setNewCardTitle('') }}
+              className="px-3 py-1.5 text-gray-400 hover:text-white text-xs rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setIsAddingCard(true)}
+          className="mx-3 mb-3 py-2 rounded-lg border border-dashed border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 text-xs flex items-center justify-center gap-1 transition-colors"
+        >
+          <Plus size={12} />
+          Adicionar card
+        </button>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add components/board/Column.tsx
+git commit -m "feat: add Column component with Droppable area and add-card inline input"
+```
+
+---
+
+## Task 11: KanbanBoard Component
+
+**Files:**
+- Create: `components/board/KanbanBoard.tsx`
+
+- [ ] **Step 1: Create KanbanBoard**
+
+Create `components/board/KanbanBoard.tsx`:
+
+```typescript
+'use client'
+
+import { DragDropContext, DropResult } from '@hello-pangea/dnd'
+import { useFlowStore } from '@/store/useFlowStore'
+import Column from './Column'
+
+export default function KanbanBoard() {
+  const { boards, cards, activeBoardId, searchQuery, filterPriority, filterMemberId, moveCard } =
+    useFlowStore()
+
+  const activeBoard = boards.find((b) => b.id === activeBoardId)
+
+  const onDragEnd = (result: DropResult) => {
+    const { source, destination, draggableId } = result
+    if (!destination) return
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return
+
+    moveCard(draggableId, source.droppableId, destination.droppableId, destination.index)
+  }
+
+  if (!activeBoard) return null
+
+  return (
+    <DragDropContext onDragEnd={onDragEnd}>
+      <div className="flex gap-4 p-6 overflow-x-auto min-h-full items-start">
+        {activeBoard.columns.map((column) => {
+          const columnCards = column.cardIds
+            .map((id) => cards[id])
+            .filter(Boolean)
+            .filter((card) => {
+              if (searchQuery && !card.title.toLowerCase().includes(searchQuery.toLowerCase())) return false
+              if (filterPriority && card.priority !== filterPriority) return false
+              if (filterMemberId && card.assigneeId !== filterMemberId) return false
+              return true
+            })
+
+          return (
+            <Column
+              key={column.id}
+              column={column}
+              cards={columnCards}
+              boardId={activeBoard.id}
+            />
+          )
+        })}
+      </div>
+    </DragDropContext>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add components/board/KanbanBoard.tsx
+git commit -m "feat: add KanbanBoard with DragDropContext and card filtering"
+```
+
+---
+
+## Task 12: CardModal Component
+
+**Files:**
+- Create: `components/modals/CardModal.tsx`
+
+- [ ] **Step 1: Create CardModal**
+
+Create `components/modals/CardModal.tsx`:
+
+```typescript
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { X, Trash2, Plus, Calendar } from 'lucide-react'
+import { useFlowStore } from '@/store/useFlowStore'
+import { Priority } from '@/types'
+import { getPriorityColor, getPriorityLabel, getChecklistProgress } from '@/lib/utils'
+
+const PRIORITIES: Priority[] = ['alta', 'media', 'baixa']
+
+export default function CardModal() {
+  const {
+    selectedCardId, cards, members,
+    setSelectedCard, updateCard, deleteCard,
+    addChecklistItem, toggleChecklistItem,
+  } = useFlowStore()
+
+  const card = selectedCardId ? cards[selectedCardId] : null
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleValue, setTitleValue] = useState('')
+  const [newChecklistText, setNewChecklistText] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (card) {
+      setTitleValue(card.title)
+      setEditingTitle(false)
+      setConfirmDelete(false)
+    }
+  }, [selectedCardId])
+
+  useEffect(() => {
+    if (editingTitle) titleInputRef.current?.focus()
+  }, [editingTitle])
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedCard(null)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [setSelectedCard])
+
+  if (!card) return null
+
+  const assignee = members.find((m) => m.id === card.assigneeId)
+  const progress = getChecklistProgress(card.checklist)
+
+  const handleTitleSave = () => {
+    if (titleValue.trim()) updateCard(card.id, { title: titleValue.trim() })
+    setEditingTitle(false)
+  }
+
+  const handleAddChecklist = () => {
+    if (!newChecklistText.trim()) return
+    addChecklistItem(card.id, newChecklistText.trim())
+    setNewChecklistText('')
+  }
+
+  const handleDelete = () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    deleteCard(card.id)
+    setSelectedCard(null)
+  }
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        onClick={(e) => { if (e.target === e.currentTarget) setSelectedCard(null) }}
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0, y: 10 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.95, opacity: 0, y: 10 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+          className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Modal header */}
+          <div className="flex items-start justify-between p-5 pb-0">
+            <div className="flex-1 mr-4">
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  value={titleValue}
+                  onChange={(e) => setTitleValue(e.target.value)}
+                  onBlur={handleTitleSave}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleTitleSave(); if (e.key === 'Escape') setEditingTitle(false) }}
+                  className="w-full text-xl font-bold text-white bg-gray-800 border border-indigo-500 rounded-lg px-3 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              ) : (
+                <h2
+                  className="text-xl font-bold text-white cursor-pointer hover:text-indigo-300 transition-colors"
+                  onClick={() => setEditingTitle(true)}
+                  title="Clique para editar"
+                >
+                  {card.title}
+                </h2>
+              )}
+            </div>
+            <button
+              onClick={() => setSelectedCard(null)}
+              className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-5">
+            {/* Description */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                Descrição
+              </label>
+              <textarea
+                value={card.description}
+                onChange={(e) => updateCard(card.id, { description: e.target.value })}
+                placeholder="Adicionar uma descrição..."
+                rows={3}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+              />
+            </div>
+
+            {/* Priority */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                Prioridade
+              </label>
+              <div className="flex gap-2">
+                {PRIORITIES.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => updateCard(card.id, { priority: p })}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      card.priority === p
+                        ? getPriorityColor(p) + ' ring-1 ring-current'
+                        : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-500'
+                    }`}
+                  >
+                    {getPriorityLabel(p)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Due date */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                <Calendar size={12} className="inline mr-1" />
+                Data de Vencimento
+              </label>
+              <input
+                type="date"
+                value={card.dueDate ?? ''}
+                onChange={(e) => updateCard(card.id, { dueDate: e.target.value || null })}
+                className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]"
+              />
+            </div>
+
+            {/* Assignee */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                Responsável
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {members.map((member) => (
+                  <button
+                    key={member.id}
+                    onClick={() => updateCard(card.id, { assigneeId: card.assigneeId === member.id ? null : member.id })}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-all ${
+                      card.assigneeId === member.id
+                        ? 'border-indigo-500 bg-indigo-500/10 text-indigo-300'
+                        : 'border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                    }`}
+                  >
+                    <div className={`w-6 h-6 rounded-full ${member.color} flex items-center justify-center text-xs font-bold text-white`}>
+                      {member.initials}
+                    </div>
+                    {member.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Checklist */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Checklist
+                </label>
+                {card.checklist.length > 0 && (
+                  <span className="text-xs text-gray-400">{progress}%</span>
+                )}
+              </div>
+
+              {card.checklist.length > 0 && (
+                <div className="mb-3">
+                  <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden mb-3">
+                    <div
+                      className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    {card.checklist.map((item) => (
+                      <label key={item.id} className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={item.done}
+                          onChange={() => toggleChecklistItem(card.id, item.id)}
+                          className="w-4 h-4 rounded border-gray-600 bg-gray-800 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className={`text-sm flex-1 ${item.done ? 'line-through text-gray-500' : 'text-gray-200'}`}>
+                          {item.text}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Novo item..."
+                  value={newChecklistText}
+                  onChange={(e) => setNewChecklistText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddChecklist() }}
+                  className="flex-1 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <button
+                  onClick={handleAddChecklist}
+                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white rounded-lg transition-colors"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Delete */}
+            <div className="pt-2 border-t border-gray-800">
+              <button
+                onClick={handleDelete}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  confirmDelete
+                    ? 'bg-red-500 text-white hover:bg-red-600'
+                    : 'text-red-400 hover:bg-red-500/10 hover:text-red-300'
+                }`}
+              >
+                <Trash2 size={16} />
+                {confirmDelete ? 'Confirmar exclusão' : 'Excluir card'}
+              </button>
+              {confirmDelete && (
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="ml-2 text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                  Cancelar
+                </button>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add components/modals/CardModal.tsx
+git commit -m "feat: add full CardModal with inline editing, checklist, priority, assignee"
+```
+
+---
+
+## Task 13: NewBoardModal Component
+
+**Files:**
+- Create: `components/modals/NewBoardModal.tsx`
+
+- [ ] **Step 1: Create NewBoardModal**
+
+Create `components/modals/NewBoardModal.tsx`:
+
+```typescript
+'use client'
+
+import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { X } from 'lucide-react'
+import { useFlowStore } from '@/store/useFlowStore'
+
+interface NewBoardModalProps {
+  onClose: () => void
+}
+
+export default function NewBoardModal({ onClose }: NewBoardModalProps) {
+  const [name, setName] = useState('')
+  const { addBoard } = useFlowStore()
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+    addBoard(name.trim())
+    onClose()
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-white">Novo Quadro</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <input
+            autoFocus
+            type="text"
+            placeholder="Nome do quadro..."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 mb-4"
+          />
+          <div className="flex gap-3 justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={!name.trim()}
+              className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Criar Quadro
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add components/modals/NewBoardModal.tsx
+git commit -m "feat: add NewBoardModal"
+```
+
+---
+
+## Task 14: Main Page Assembly
+
+**Files:**
+- Modify: `app/page.tsx`
+
+- [ ] **Step 1: Wire everything together**
+
+Replace contents of `app/page.tsx`:
+
+```typescript
+'use client'
+
+import { useEffect } from 'react'
+import { useFlowStore } from '@/store/useFlowStore'
+import Sidebar from '@/components/layout/Sidebar'
+import Header from '@/components/layout/Header'
+import KanbanBoard from '@/components/board/KanbanBoard'
+import CardModal from '@/components/modals/CardModal'
+
+export default function Home() {
+  const { darkMode, selectedCardId } = useFlowStore()
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [darkMode])
+
+  return (
+    <div className={`flex h-screen overflow-hidden ${darkMode ? 'bg-gray-950 text-gray-100' : 'bg-gray-100 text-gray-900'}`}>
+      <Sidebar />
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <Header />
+        <main className="flex-1 overflow-auto">
+          <KanbanBoard />
+        </main>
+      </div>
+      {selectedCardId && <CardModal />}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Update tailwind.config.ts to add necessary settings**
+
+Read current `tailwind.config.ts` and add `darkMode: 'class'` and `line-clamp` plugin:
+
+```typescript
+import type { Config } from 'tailwindcss'
+
+const config: Config = {
+  darkMode: 'class',
+  content: [
+    './pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+export default config
+```
+
+- [ ] **Step 3: Run the app and verify**
+
+```bash
+npm run dev
+```
+
+Open http://localhost:3000. Verify:
+- Sidebar shows 3 boards and 4 members
+- Clicking a board switches the kanban view
+- Cards are visible with priority badges, assignee avatars, due dates
+- Dragging a card between columns works
+- Clicking a card opens the modal
+- Editing title inline works
+- Checklist items can be added and toggled
+- Adding a card via "+" button works
+- Search filters cards in real time
+- Priority and member filters work
+- Dark mode toggle works
+- New board creation works
+
+- [ ] **Step 4: Fix any TypeScript errors**
+
+```bash
+npx tsc --noEmit
+```
+
+Fix any type errors found before committing.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add app/page.tsx tailwind.config.ts
+git commit -m "feat: assemble main page — FlowBoard complete"
+```
+
+---
+
+## Task 15: Fix Column useFlowStore import
+
+**Files:**
+- Modify: `components/board/Column.tsx`
+
+The Column component uses `require()` for the store which is not idiomatic. Fix it.
+
+- [ ] **Step 1: Update Column.tsx to use hook properly**
+
+The Column component needs `addCard` from the store. Replace the `require` approach with a proper import and hook call:
+
+```typescript
+'use client'
+
+import { useState } from 'react'
+import { Droppable } from '@hello-pangea/dnd'
+import { Plus } from 'lucide-react'
+import { Column as ColumnType, Card as CardType } from '@/types'
+import { useFlowStore } from '@/store/useFlowStore'
+import CardComponent from './Card'
+
+interface ColumnProps {
+  column: ColumnType
+  cards: CardType[]
+  boardId: string
+}
+
+const COLUMN_HEADER_COLORS: Record<string, string> = {
+  'A Fazer': 'bg-gray-500/20 text-gray-300',
+  'Em Progresso': 'bg-blue-500/20 text-blue-300',
+  'Em Revisão': 'bg-yellow-500/20 text-yellow-300',
+  'Concluído': 'bg-green-500/20 text-green-300',
+}
+
+export default function Column({ column, cards, boardId }: ColumnProps) {
+  const { addCard } = useFlowStore()
+  const [isAddingCard, setIsAddingCard] = useState(false)
+  const [newCardTitle, setNewCardTitle] = useState('')
+
+  const headerColor = COLUMN_HEADER_COLORS[column.title] ?? 'bg-gray-500/20 text-gray-300'
+
+  const handleAddCard = () => {
+    if (!newCardTitle.trim()) return
+    addCard(column.id, boardId, newCardTitle.trim())
+    setNewCardTitle('')
+    setIsAddingCard(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleAddCard()
+    if (e.key === 'Escape') {
+      setIsAddingCard(false)
+      setNewCardTitle('')
+    }
+  }
+
+  return (
+    <div className="flex flex-col w-72 min-w-[288px] bg-gray-900/50 rounded-2xl border border-gray-800">
+      {/* Column header */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-gray-200">{column.title}</h2>
+          <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold ${headerColor}`}>
+            {cards.length}
+          </span>
+        </div>
+        <button
+          onClick={() => setIsAddingCard(true)}
+          className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+          title="Adicionar card"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+
+      {/* Cards */}
+      <Droppable droppableId={column.id}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={`flex-1 min-h-[80px] px-3 pb-3 space-y-2 transition-colors ${
+              snapshot.isDraggingOver ? 'bg-indigo-500/5 rounded-b-2xl' : ''
+            }`}
+          >
+            {cards.map((card, index) => (
+              <CardComponent key={card.id} card={card} index={index} />
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+
+      {/* Add card input */}
+      {isAddingCard ? (
+        <div className="px-3 pb-3">
+          <input
+            autoFocus
+            type="text"
+            placeholder="Título do card..."
+            value={newCardTitle}
+            onChange={(e) => setNewCardTitle(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => {
+              if (!newCardTitle.trim()) {
+                setIsAddingCard(false)
+              }
+            }}
+            className="w-full px-3 py-2 bg-gray-800 border border-indigo-500/50 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={handleAddCard}
+              className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium rounded-lg transition-colors"
+            >
+              Adicionar
+            </button>
+            <button
+              onClick={() => { setIsAddingCard(false); setNewCardTitle('') }}
+              className="px-3 py-1.5 text-gray-400 hover:text-white text-xs rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setIsAddingCard(true)}
+          className="mx-3 mb-3 py-2 rounded-lg border border-dashed border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 text-xs flex items-center justify-center gap-1 transition-colors"
+        >
+          <Plus size={12} />
+          Adicionar card
+        </button>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add components/board/Column.tsx
+git commit -m "fix: use proper React hook import in Column component"
+```
+
+---
+
+## Self-Review Checklist
+
+**Spec coverage:**
+- ✅ 4 colunas Kanban padrão → KanbanBoard + Column (Task 11, 10)
+- ✅ Cards arrastáveis → @hello-pangea/dnd (Task 9, 11)
+- ✅ Card: título, descrição, prioridade, avatar, data vencimento → Card (Task 9)
+- ✅ Contador de cards por coluna → Column header (Task 10)
+- ✅ Botão "+" por coluna → Column (Task 10)
+- ✅ Modal com título editável inline → CardModal (Task 12)
+- ✅ Campo de descrição completa → CardModal (Task 12)
+- ✅ Seletor de prioridade → CardModal (Task 12)
+- ✅ Seletor de data de vencimento → CardModal (Task 12)
+- ✅ Checklist com barra de progresso → CardModal (Task 12)
+- ✅ Seletor de responsável → CardModal (Task 12)
+- ✅ Botão excluir card com confirmação → CardModal (Task 12)
+- ✅ Sidebar com logo → Sidebar (Task 7)
+- ✅ Lista de quadros mockados → Sidebar + mockData (Task 7, 4)
+- ✅ Trocar entre quadros com estado separado → store activeBoardId (Task 5)
+- ✅ Botão criar novo quadro → NewBoardModal (Task 13)
+- ✅ Membros com status online/offline → Sidebar (Task 7)
+- ✅ Header com nome do quadro → Header (Task 8)
+- ✅ Busca em tempo real → Header + KanbanBoard filter (Task 8, 11)
+- ✅ Filtro por prioridade → Header + KanbanBoard (Task 8, 11)
+- ✅ Filtro por membro → Header + KanbanBoard (Task 8, 11)
+- ✅ Toggle dark/light mode → Header + page.tsx (Task 8, 14)
+- ✅ Context/Zustand para estado global → useFlowStore (Task 5)
+- ✅ Dark mode como padrão → store darkMode: true (Task 5)
+- ✅ Responsivo mobile scroll horizontal → KanbanBoard overflow-x-auto (Task 11)
+- ✅ Datas vencidas em vermelho → Card isOverdue (Task 9)
+- ✅ 3 quadros, 5+ cards cada, 4 membros → mockData (Task 4)
+- ✅ Textos em português → mockData + todos os componentes
+
+**Type consistency:** `addCard(columnId, boardId, title)` used consistently in Column and store.

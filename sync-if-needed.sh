@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ROOT="$HOME/dev-machine-config"
+PROJECT_ROOT="$HOME/Projetos/ai/dev-machine-config"
 
 COMPARE_SCRIPT="$PROJECT_ROOT/scripts/compare.sh"
 

@@ -1,0 +1,66 @@
+'use client'
+
+import { useState } from 'react'
+import { useFlowStore } from '@/store/useFlowStore'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+
+interface NewBoardModalProps {
+  open: boolean
+  onClose: () => void
+}
+
+export default function NewBoardModal({ open, onClose }: NewBoardModalProps) {
+  const [name, setName] = useState('')
+  const { addBoard } = useFlowStore()
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+    addBoard(name.trim())
+    setName('')
+    onClose()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setName(''); onClose() } }}>
+      <DialogContent className="max-w-sm bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700">
+        <DialogHeader>
+          <DialogTitle className="text-gray-900 dark:text-white">Novo Quadro</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <Input
+            autoFocus
+            placeholder="Nome do quadro..."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700"
+          />
+          <div className="flex gap-3 justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => { setName(''); onClose() }}
+              className="text-gray-500 dark:text-gray-400"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              disabled={!name.trim()}
+              className="bg-indigo-500 hover:bg-indigo-600 text-white"
+            >
+              Criar Quadro
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

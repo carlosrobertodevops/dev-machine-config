@@ -1,0 +1,186 @@
+# FlowBoard — ShadCN UI Migration Design Spec
+**Date:** 2026-04-02
+**Status:** Approved
+
+---
+
+## Objetivo
+
+Substituir componentes de UI customizados do FlowBoard por componentes ShadCN UI (versão canary com suporte a Tailwind v4), mantendo toda a lógica de negócio, estado Zustand, drag-and-drop e testes intactos.
+
+---
+
+## Stack
+
+| Camada | Antes | Depois |
+|---|---|---|
+| Framework | Next.js 16, React 19 | Mesmo |
+| Estilo | Tailwind v4 custom | Tailwind v4 + ShadCN canary |
+| Theming | `@custom-variant dark` manual | ShadCN CSS variables + `.dark` class |
+| Componentes UI | 100% custom | Primitivos via ShadCN, estrutura Kanban custom |
+
+---
+
+## Setup ShadCN
+
+Usar `npx shadcn@canary init` que:
+- Instala `class-variance-authority`, `clsx`, `tailwind-merge`, `@radix-ui/react-*`
+- Cria `lib/utils.ts` com `cn()` helper — **ATENÇÃO:** isso conflita com o `lib/utils.ts` existente. A função `cn()` deve ser adicionada ao `lib/utils.ts` existente, não substituir o arquivo.
+- Sobrescreve `globals.css` com CSS variables do ShadCN — precisamos preservar o `@custom-variant dark` e o scrollbar customizado
+- Cria `components/ui/` para os componentes instalados
+
+### Componentes a instalar
+
+```bash
+npx shadcn@canary add button input textarea select badge progress checkbox dialog scroll-area separator
+```
+
+---
+
+## Mapeamento de Substituições
+
+### `components/layout/Header.tsx`
+- Filtros `<select>` → `<Select>` + `<SelectTrigger>` + `<SelectContent>` + `<SelectItem>`
+- Input de busca → `<Input>` (com ícone de busca via slot/className)
+- Botão toggle dark mode → `<Button variant="ghost" size="icon">`
+
+### `components/layout/Sidebar.tsx`
+- Botão "+ novo quadro" → `<Button variant="ghost" size="icon">`
+- Botões de navegação de board → `<Button variant="ghost">` (com estado ativo via className condicional)
+- Separador entre seções → `<Separator>`
+
+### `components/board/Card.tsx`
+- Badge de prioridade → `<Badge variant="outline">` com className de cor condicional
+- Barra de progresso checklist → `<Progress value={progress}>`
+
+### `components/board/Column.tsx`
+- Botões "+" e "Adicionar/Cancelar" → `<Button variant="ghost/outline" size="sm">`
+- Input inline de novo card → `<Input>`
+- Área de cards com scroll → `<ScrollArea>` (opcional, só se coluna tiver altura fixa)
+
+### `components/modals/CardModal.tsx`
+- Overlay/dialog → `<Dialog>` + `<DialogContent>` + `<DialogHeader>` + `<DialogTitle>`
+- Título editável → `<Input>` (quando em modo edição)
+- Descrição → `<Textarea>`
+- Seletor de prioridade → 3x `<Button variant="outline">` com className de cor
+- Input de data → `<Input type="date">`
+- Checklist input → `<Input>` + `<Button variant="ghost" size="icon">`
+- Checkboxes → `<Checkbox>`
+- Barra de progresso → `<Progress value={progress}>`
+- Botão excluir → `<Button variant="destructive">` / `<Button variant="ghost">` com texto vermelho
+- Seletores de responsável → `<Button variant="outline">` com estado ativo
+
+### `components/modals/NewBoardModal.tsx`
+- Overlay/dialog → `<Dialog>` + `<DialogContent>`
+- Input de nome → `<Input>`
+- Botões → `<Button variant="outline">` (cancelar) + `<Button>` (criar)
+
+---
+
+## O que NÃO muda
+
+- `components/board/KanbanBoard.tsx` — sem elementos de UI primitivos, só lógica DnD
+- `components/board/Column.tsx` — estrutura `Droppable` permanece, só primitivos internos trocam
+- `components/board/Card.tsx` — estrutura `Draggable` permanece, só Badge e Progress trocam
+- `store/useFlowStore.ts` — sem alterações
+- `data/mockData.ts` — sem alterações
+- `types/index.ts` — sem alterações
+- `lib/utils.ts` — recebe `cn()` adicionada, não substituída
+- Testes `lib/utils.test.ts` e `store/useFlowStore.test.ts` — sem alterações
+
+---
+
+## Theming / globals.css
+
+O ShadCN canary gera CSS variables em `:root` e `.dark`. Precisamos integrar com o sistema existente:
+
+```css
+@import "tailwindcss";
+@plugin "tailwindcss-animate"; /* instalado pelo ShadCN */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* ShadCN light mode variables */
+  --background: oklch(0.98 0 0);       /* ~gray-50 */
+  --foreground: oklch(0.145 0 0);      /* ~gray-900 */
+  --card: oklch(1 0 0);                /* white */
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.546 0.245 264);   /* indigo-500 */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.961 0 0);       /* gray-100 */
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.961 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.961 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27); /* red-500 */
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);           /* gray-200 */
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.546 0.245 264);       /* indigo-500 */
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: oklch(0.065 0 0);      /* ~gray-950 */
+  --foreground: oklch(0.985 0 0);      /* ~gray-100 */
+  --card: oklch(0.145 0 0);            /* ~gray-900 */
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.546 0.245 264);   /* indigo-500 */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.205 0 0);       /* gray-800 */
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.205 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.205 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.205 0 0);           /* gray-800 */
+  --input: oklch(0.205 0 0);
+  --ring: oklch(0.546 0.245 264);
+}
+```
+
+---
+
+## Estrutura de Arquivos Final
+
+```
+components/
+├── ui/                    # ← gerado pelo ShadCN (não editar)
+│   ├── button.tsx
+│   ├── input.tsx
+│   ├── textarea.tsx
+│   ├── select.tsx
+│   ├── badge.tsx
+│   ├── progress.tsx
+│   ├── checkbox.tsx
+│   ├── dialog.tsx
+│   ├── scroll-area.tsx
+│   └── separator.tsx
+├── layout/
+│   ├── Sidebar.tsx        # usa Button, Separator do ShadCN
+│   └── Header.tsx         # usa Input, Select, Button do ShadCN
+├── board/
+│   ├── KanbanBoard.tsx    # sem mudança
+│   ├── Column.tsx         # usa Button, Input do ShadCN
+│   └── Card.tsx           # usa Badge, Progress do ShadCN
+└── modals/
+    ├── CardModal.tsx      # usa Dialog, Input, Textarea, Checkbox, Progress, Button
+    └── NewBoardModal.tsx  # usa Dialog, Input, Button
+```
+
+---
+
+## Fora do Escopo
+
+- Substituição da estrutura de drag-and-drop
+- Novos componentes ShadCN além dos listados (Sheet, Tooltip, Popover, etc.)
+- Alterações na lógica de estado ou testes
+- Migração para Tailwind v3
